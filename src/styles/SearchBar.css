@@ -1,0 +1,127 @@
+.search-bar {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  animation: fadeInUp 0.8s ease-out 0.4s both;
+}
+
+.search-bar form {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 300px;
+  padding: 1rem 1.75rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 50px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 
+    0 4px 20px rgba(0, 0, 0, 0.15),
+    inset 0 0 0 2px transparent;
+  transition: all 0.3s ease;
+  color: #1e1b4b;
+  font-weight: 500;
+}
+
+.search-input:focus {
+  outline: none;
+  box-shadow: 
+    0 8px 30px rgba(99, 102, 241, 0.3),
+    inset 0 0 0 2px rgba(99, 102, 241, 0.5);
+  transform: translateY(-2px);
+}
+
+.search-input::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.search-btn {
+  padding: 1rem 2.5rem;
+  font-size: 1rem;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.search-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.6);
+}
+
+.search-btn:active {
+  transform: translateY(-1px);
+}
+
+.suggestions {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.suggestions-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  font-size: 0.9rem;
+  margin-right: 0.5rem;
+}
+
+.suggestion-btn {
+  padding: 0.5rem 1.1rem;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.suggestion-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .search-bar form {
+    flex-direction: column;
+  }
+
+  .search-input {
+    min-width: 100%;
+  }
+
+  .search-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .suggestions {
+    gap: 0.5rem;
+  }
+
+  .suggestion-btn {
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8rem;
+  }
+}

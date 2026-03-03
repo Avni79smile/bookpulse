@@ -4,20 +4,28 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --names \"client,api\" --prefix-colors \"cyan,magenta\" --restart-tries 20 --restart-after 2000 \"npm run dev:client\" \"npm run server:clean\"",
+    "dev:client": "vite",
+    "server": "node server/index.js",
+    "server:clean": "fuser -k 5175/tcp 2>/dev/null; node server/index.js",
+    "dev:full": "npm run dev",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-pageflip": "^2.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

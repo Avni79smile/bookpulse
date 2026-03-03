@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import '../styles/BookViewer.css'
 
 function BookViewer({ book, onClose }) {
   const [activeTab, setActiveTab] = useState('read') // 'read' or 'audio'
   const [iframeLoaded, setIframeLoaded] = useState(false)
   const [loadError, setLoadError] = useState(false)
-  const [isAudioAvailable, setIsAudioAvailable] = useState(false)
+  const isAudioAvailable = Boolean(book?.hasAudio)
 
   const handleIframeLoad = () => {
     setIframeLoaded(true)
@@ -17,7 +17,6 @@ function BookViewer({ book, onClose }) {
 
   const accessType = book.isFullAvailable ? 'Full Book' : 'Preview'
   const isGutenberg = book.id?.startsWith('gutenberg-')
-  const isArchive = book.id?.startsWith('archive-')
 
   // Get preview URL
   const getPreviewUrl = () => {
@@ -28,22 +27,6 @@ function BookViewer({ book, onClose }) {
     }
     return null
   }
-
-  // Get audio URL for Internet Archive books
-  const getAudioUrl = () => {
-    if (isArchive) {
-      // Internet Archive books often have audio formats
-      return `https://archive.org/details/${book.infoLink.split('/').pop()}?output=json`
-    }
-    return null
-  }
-
-  useEffect(() => {
-    // Check if audio is available
-    if (isArchive) {
-      setIsAudioAvailable(true)
-    }
-  }, [isArchive])
 
   return (
     <div className="book-viewer-overlay" onClick={onClose}>

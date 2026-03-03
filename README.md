@@ -1,16 +1,30 @@
-# React + Vite
+# BookPulse
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+BookPulse aggregates free books and audiobooks from public sources:
 
-Currently, two official plugins are available:
+- Internet Archive
+- LibriVox
+- Project Gutenberg
+- Google Books (free/publicly readable)
+- Open Library (public scan only)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Local development
 
-## React Compiler
+Install dependencies:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+`npm install`
 
-## Expanding the ESLint configuration
+Run frontend + backend together:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+`npm run dev`
+
+This starts:
+
+- Vite app at `http://localhost:5173`
+- API proxy server at `http://localhost:5175`
+
+## Other scripts
+
+- `npm run dev:client` → Vite frontend only
+- `npm run server` → API server only
+- `npm run build` → production build
