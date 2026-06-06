@@ -550,6 +550,193 @@
   animation: bounce 2s infinite;
 }
 
+/* Editorial theme overrides */
+.book-reader-full {
+  background:
+    radial-gradient(circle at top left, rgba(243, 179, 39, 0.12), transparent 28%),
+    linear-gradient(180deg, #f8f4ec 0%, #eef0f4 100%);
+  color: #171717;
+}
+
+.reader-header,
+.viewer-header {
+  background: linear-gradient(135deg, #12151d 0%, #1e2431 100%);
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.back-btn,
+.bookmark-btn,
+.tab-button,
+.control-btn,
+.audio-btn,
+.action-btn,
+.primary-btn,
+.secondary-btn,
+.topbar-btn {
+  border-radius: 999px;
+}
+
+.reader-tabs,
+.viewer-tabs,
+.reader-controls {
+  background: rgba(255, 252, 247, 0.92);
+  backdrop-filter: blur(16px);
+  border-color: rgba(18, 18, 18, 0.08);
+}
+
+.tab-button,
+.control-btn,
+.action-btn,
+.primary-btn,
+.audio-btn {
+  background: linear-gradient(135deg, #f7d06d 0%, #f3b327 100%);
+  color: #171717;
+  border: 1px solid rgba(243, 179, 39, 0.2);
+  box-shadow: 0 10px 24px rgba(243, 179, 39, 0.18);
+}
+
+.tab-button:hover,
+.control-btn:hover:not(:disabled),
+.action-btn:hover,
+.primary-btn:hover,
+.audio-btn:hover {
+  transform: translateY(-1px);
+}
+
+.tab-button.active,
+.control-btn.active,
+.action-btn.active,
+.primary-btn.active {
+  background: linear-gradient(135deg, #12151d 0%, #232a3a 100%);
+  color: #fff;
+}
+
+.reader-main,
+.viewer-content,
+.text-reader,
+.audio-section,
+.audio-content,
+.info-section,
+.book-details,
+.book-viewer-container {
+  background: transparent;
+}
+
+.reader-viewer,
+.text-reader,
+.chapter-sidebar,
+.chapter-content,
+.flipbook-page,
+.audio-container,
+.info-detail-group,
+.info-container,
+.book-viewer-container,
+.book-details,
+.no-audio,
+.preview-banner {
+  border-color: rgba(18, 18, 18, 0.08);
+  box-shadow: 0 18px 40px rgba(16, 18, 24, 0.08);
+}
+
+.reader-viewer,
+.chapter-content,
+.audio-container,
+.book-viewer-container {
+  border-radius: 24px;
+}
+
+.text-reader,
+.chapter-content,
+.flipbook-page-inner,
+.audio-container,
+.info-container,
+.book-details {
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.text-reader {
+  font-size: 1.02rem;
+  line-height: 1.8;
+  color: #1f2937;
+}
+
+.chapter-sidebar h3,
+.chapter-meta,
+.viewer-title-section h2,
+.audio-container h2,
+.info-right h2 {
+  color: #171717;
+}
+
+.chapter-item,
+.page-input {
+  border-radius: 14px;
+}
+
+.chapter-item.active {
+  background: rgba(243, 179, 39, 0.12);
+  border-color: rgba(243, 179, 39, 0.35);
+}
+
+.preview-banner,
+.source-badge,
+.viewer-badge.full,
+.viewer-badge.preview {
+  border-radius: 999px;
+}
+
+.preview-banner {
+  background: rgba(243, 179, 39, 0.14);
+  color: #8a5b12;
+}
+
+.source-badge.full,
+.viewer-badge.full {
+  background: rgba(16, 185, 129, 0.18);
+  color: #0f766e;
+}
+
+.source-badge.preview,
+.viewer-badge.preview {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+
+.page-input:focus {
+  border-color: #f3b327;
+  box-shadow: 0 0 0 3px rgba(243, 179, 39, 0.18);
+}
+
+.chapter-list,
+.viewer-tabs,
+.audio-player-list,
+.audio-files,
+.viewer-footer,
+.info-actions,
+.audio-options,
+.flipbook-controls {
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .reader-header,
+  .viewer-header {
+    padding: 1rem 1.1rem;
+  }
+
+  .reader-tabs,
+  .viewer-tabs,
+  .reader-controls {
+    padding: 0.85rem 1rem;
+  }
+
+  .text-reader {
+    font-size: 0.98rem;
+    padding: 1rem;
+  }
+}
+
 @keyframes bounce {
   0%, 100% {
     transform: translateY(0);

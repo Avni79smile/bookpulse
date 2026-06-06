@@ -16,13 +16,33 @@ const app = express()
 const PORT = process.env.PORT || 5175
 const TMDB_API_KEY = process.env.TMDB_API_KEY || '7172c9a75fb01a4fa514de0d57a2f4c7'
 const OMDB_KEY = process.env.OMDB_KEY || '8f081069'
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
 
 app.use(express.json())
 
 // ─── PostgreSQL Database ───────────────────────────────────────────────────
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const pool = hasDatabaseUrl ? new Pool({ connectionString: process.env.DATABASE_URL }) : null
+let databaseAvailable = Boolean(pool)
+const bookmarksStore = new Map()
+const progressStore = new Map()
+
+const getDeviceStore = (store, deviceId) => {
+  if (!store.has(deviceId)) store.set(deviceId, new Map())
+  return store.get(deviceId)
+}
+
+const useMemoryFallback = (err, context) => {
+  if (databaseAvailable) {
+    databaseAvailable = false
+    console.warn(`${context}: database unavailable, using in-memory storage`, err?.message || err)
+  }
+}
 
 const initDb = async () => {
+  if (!pool) {
+    return
+  }
+
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS bookmarks (
@@ -49,7 +69,7 @@ const initDb = async () => {
     `)
     console.log('Database tables ready')
   } catch (err) {
-    console.error('DB init error:', err.message)
+    useMemoryFallback(err, 'DB init error')
   }
 }
 initDb()
@@ -500,16 +520,137 @@ app.get('/api/movies/trailers', async (req, res) => {
 
 // ─── Database Endpoints ────────────────────────────────────────────────────
 
+const loadBookmarksForDevice = async (deviceId) => {
+  if (databaseAvailable && pool) {
+    try {
+    const result = await pool.query(
+      'SELECT * FROM bookmarks WHERE device_id = $1 ORDER BY created_at DESC',
+      [deviceId]
+    )
+    return result.rows
+    } catch (err) {
+      useMemoryFallback(err, 'Get bookmarks error')
+    }
+  }
+
+  return Array.from(getDeviceStore(bookmarksStore, deviceId).values())
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+}
+
+const saveBookmarkForDevice = async ({ device_id, book_id, title, author, image, source }) => {
+  if (databaseAvailable && pool) {
+    try {
+    await pool.query(
+      `INSERT INTO bookmarks (device_id, book_id, title, author, image, source)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (device_id, book_id) DO NOTHING`,
+      [device_id, book_id, title, author || '', image || '', source || '']
+    )
+    return
+    } catch (err) {
+      useMemoryFallback(err, 'Add bookmark error')
+    }
+  }
+
+  const deviceStore = getDeviceStore(bookmarksStore, device_id)
+  const key = String(book_id)
+  if (!deviceStore.has(key)) {
+    deviceStore.set(key, {
+      id: key,
+      device_id,
+      book_id: key,
+      title,
+      author: author || '',
+      image: image || '',
+      source: source || '',
+      created_at: new Date().toISOString(),
+    })
+  }
+}
+
+const deleteBookmarkForDevice = async (deviceId, bookId) => {
+  if (databaseAvailable && pool) {
+    try {
+    await pool.query('DELETE FROM bookmarks WHERE device_id = $1 AND book_id = $2', [deviceId, bookId])
+    return
+    } catch (err) {
+      useMemoryFallback(err, 'Delete bookmark error')
+    }
+  }
+
+  getDeviceStore(bookmarksStore, deviceId).delete(String(bookId))
+}
+
+const loadProgressForBook = async (deviceId, bookId) => {
+  if (databaseAvailable && pool) {
+    try {
+    const result = await pool.query(
+      'SELECT * FROM reading_progress WHERE device_id = $1 AND book_id = $2',
+      [deviceId, bookId]
+    )
+    return result.rows[0] || null
+    } catch (err) {
+      useMemoryFallback(err, 'Get progress error')
+    }
+  }
+
+  return getDeviceStore(progressStore, deviceId).get(String(bookId)) || null
+}
+
+const saveProgressForBook = async ({ device_id, book_id, title, chapter, position }) => {
+  if (databaseAvailable && pool) {
+    try {
+    await pool.query(
+      `INSERT INTO reading_progress (device_id, book_id, title, chapter, position)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (device_id, book_id) DO UPDATE
+       SET chapter = EXCLUDED.chapter, position = EXCLUDED.position,
+           title = EXCLUDED.title, updated_at = NOW()`,
+      [device_id, book_id, title || '', chapter || 0, position || 0]
+    )
+    return
+    } catch (err) {
+      useMemoryFallback(err, 'Save progress error')
+    }
+  }
+
+  const deviceStore = getDeviceStore(progressStore, device_id)
+  const key = String(book_id)
+  deviceStore.set(key, {
+    id: key,
+    device_id,
+    book_id: key,
+    title: title || '',
+    chapter: chapter || 0,
+    position: position || 0,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+const loadAllProgressForDevice = async (deviceId) => {
+  if (databaseAvailable && pool) {
+    try {
+    const result = await pool.query(
+      'SELECT * FROM reading_progress WHERE device_id = $1 ORDER BY updated_at DESC',
+      [deviceId]
+    )
+    return result.rows
+    } catch (err) {
+      useMemoryFallback(err, 'Get all progress error')
+    }
+  }
+
+  return Array.from(getDeviceStore(progressStore, deviceId).values())
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+}
+
 // GET bookmarks for a device
 app.get('/api/bookmarks', async (req, res) => {
   const { device_id } = req.query
   if (!device_id) return res.status(400).json({ error: 'device_id required' })
   try {
-    const result = await pool.query(
-      'SELECT * FROM bookmarks WHERE device_id = $1 ORDER BY created_at DESC',
-      [device_id]
-    )
-    res.json({ bookmarks: result.rows })
+    const bookmarks = await loadBookmarksForDevice(device_id)
+    res.json({ bookmarks })
   } catch (err) {
     console.error('Get bookmarks error:', err.message)
     res.status(500).json({ error: 'Failed to fetch bookmarks' })
@@ -521,12 +662,7 @@ app.post('/api/bookmarks', async (req, res) => {
   const { device_id, book_id, title, author, image, source } = req.body
   if (!device_id || !book_id || !title) return res.status(400).json({ error: 'device_id, book_id, title required' })
   try {
-    await pool.query(
-      `INSERT INTO bookmarks (device_id, book_id, title, author, image, source)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (device_id, book_id) DO NOTHING`,
-      [device_id, book_id, title, author || '', image || '', source || '']
-    )
+    await saveBookmarkForDevice({ device_id, book_id, title, author, image, source })
     res.json({ success: true })
   } catch (err) {
     console.error('Add bookmark error:', err.message)
@@ -539,7 +675,7 @@ app.delete('/api/bookmarks', async (req, res) => {
   const { device_id, book_id } = req.query
   if (!device_id || !book_id) return res.status(400).json({ error: 'device_id, book_id required' })
   try {
-    await pool.query('DELETE FROM bookmarks WHERE device_id = $1 AND book_id = $2', [device_id, book_id])
+    await deleteBookmarkForDevice(device_id, book_id)
     res.json({ success: true })
   } catch (err) {
     console.error('Delete bookmark error:', err.message)
@@ -552,11 +688,8 @@ app.get('/api/progress', async (req, res) => {
   const { device_id, book_id } = req.query
   if (!device_id || !book_id) return res.status(400).json({ error: 'device_id, book_id required' })
   try {
-    const result = await pool.query(
-      'SELECT * FROM reading_progress WHERE device_id = $1 AND book_id = $2',
-      [device_id, book_id]
-    )
-    res.json({ progress: result.rows[0] || null })
+    const progress = await loadProgressForBook(device_id, book_id)
+    res.json({ progress })
   } catch (err) {
     console.error('Get progress error:', err.message)
     res.status(500).json({ error: 'Failed to fetch progress' })
@@ -568,14 +701,7 @@ app.put('/api/progress', async (req, res) => {
   const { device_id, book_id, title, chapter, position } = req.body
   if (!device_id || !book_id) return res.status(400).json({ error: 'device_id, book_id required' })
   try {
-    await pool.query(
-      `INSERT INTO reading_progress (device_id, book_id, title, chapter, position)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (device_id, book_id) DO UPDATE
-       SET chapter = EXCLUDED.chapter, position = EXCLUDED.position,
-           title = EXCLUDED.title, updated_at = NOW()`,
-      [device_id, book_id, title || '', chapter || 0, position || 0]
-    )
+    await saveProgressForBook({ device_id, book_id, title, chapter, position })
     res.json({ success: true })
   } catch (err) {
     console.error('Save progress error:', err.message)
@@ -588,11 +714,8 @@ app.get('/api/progress/all', async (req, res) => {
   const { device_id } = req.query
   if (!device_id) return res.status(400).json({ error: 'device_id required' })
   try {
-    const result = await pool.query(
-      'SELECT * FROM reading_progress WHERE device_id = $1 ORDER BY updated_at DESC',
-      [device_id]
-    )
-    res.json({ progress: result.rows })
+    const progress = await loadAllProgressForDevice(device_id)
+    res.json({ progress })
   } catch (err) {
     console.error('Get all progress error:', err.message)
     res.status(500).json({ error: 'Failed to fetch progress' })
