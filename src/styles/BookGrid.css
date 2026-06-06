@@ -1,53 +1,64 @@
+/* BookGrid — responsive premium grid */
+
 .book-grid {
   max-width: 1500px;
   margin: 0 auto;
-  padding: 2rem 1.5rem 3rem;
+  padding: 2rem 1.5rem 3.5rem;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 2rem;
-  animation: fadeIn 0.6s ease;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1.75rem;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Staggered fade-in for first 12 cards */
+.book-grid > * {
+  animation: cardAppear 0.5s ease both;
+}
+.book-grid > *:nth-child(1)  { animation-delay: 0.04s; }
+.book-grid > *:nth-child(2)  { animation-delay: 0.09s; }
+.book-grid > *:nth-child(3)  { animation-delay: 0.14s; }
+.book-grid > *:nth-child(4)  { animation-delay: 0.18s; }
+.book-grid > *:nth-child(5)  { animation-delay: 0.22s; }
+.book-grid > *:nth-child(6)  { animation-delay: 0.26s; }
+.book-grid > *:nth-child(7)  { animation-delay: 0.30s; }
+.book-grid > *:nth-child(8)  { animation-delay: 0.34s; }
+.book-grid > *:nth-child(9)  { animation-delay: 0.37s; }
+.book-grid > *:nth-child(10) { animation-delay: 0.40s; }
+.book-grid > *:nth-child(11) { animation-delay: 0.43s; }
+.book-grid > *:nth-child(12) { animation-delay: 0.46s; }
+
+@keyframes cardAppear {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 
-/* Stagger animation for cards */
-.book-grid > *:nth-child(1) { animation-delay: 0.05s; }
-.book-grid > *:nth-child(2) { animation-delay: 0.1s; }
-.book-grid > *:nth-child(3) { animation-delay: 0.15s; }
-.book-grid > *:nth-child(4) { animation-delay: 0.2s; }
-.book-grid > *:nth-child(5) { animation-delay: 0.25s; }
-.book-grid > *:nth-child(6) { animation-delay: 0.3s; }
-.book-grid > *:nth-child(7) { animation-delay: 0.35s; }
-.book-grid > *:nth-child(8) { animation-delay: 0.4s; }
-
-@media (max-width: 1200px) {
+/* ── Breakpoints ──────────────────────────────────────────────────────── */
+@media (max-width: 1400px) {
   .book-grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
     gap: 1.5rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 1.25rem;
+    padding: 1.75rem 1.25rem 3rem;
   }
 }
 
 @media (max-width: 768px) {
   .book-grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 1.25rem;
-    padding: 1.5rem 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 1rem;
+    padding: 1.25rem 1rem 2.5rem;
   }
 }
 
 @media (max-width: 480px) {
   .book-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    padding: 1rem 0.75rem;
+    gap: 0.875rem;
+    padding: 1rem 0.75rem 2rem;
   }
 }

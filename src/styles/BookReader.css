@@ -9,15 +9,16 @@
 
 /* Header */
 .reader-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #1a1410 0%, #2d2218 100%);
   color: white;
-  padding: 1.5rem 2rem;
+  padding: 1.25rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
   flex-wrap: wrap;
   gap: 1rem;
+  border-bottom: 1px solid rgba(243, 179, 39, 0.15);
 }
 
 .header-left {
@@ -28,21 +29,22 @@
 }
 
 .back-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  padding: 0.7rem 1.5rem;
-  border-radius: 20px;
+  background: rgba(243, 179, 39, 0.15);
+  color: #f7d06d;
+  border: 1px solid rgba(243, 179, 39, 0.35);
+  padding: 0.65rem 1.4rem;
+  border-radius: 999px;
   cursor: pointer;
   font-weight: 600;
-  transition: all 0.3s ease;
+  transition: all 0.22s ease;
   white-space: nowrap;
+  font-size: 0.9rem;
 }
 
 .back-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: white;
-  transform: translateX(-5px);
+  background: rgba(243, 179, 39, 0.25);
+  border-color: rgba(243, 179, 39, 0.6);
+  transform: translateX(-3px);
 }
 
 .book-header-info h1 {
@@ -91,28 +93,28 @@
 }
 
 .bookmark-btn {
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255,255,255,0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   padding: 0.5rem 1.1rem;
-  border-radius: 20px;
+  border-radius: 999px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.87rem;
   font-weight: 600;
-  transition: all 0.25s ease;
+  transition: all 0.22s ease;
   white-space: nowrap;
 }
 
 .bookmark-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.28);
-  border-color: white;
-  transform: scale(1.04);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255,255,255,0.32);
+  transform: scale(1.03);
 }
 
 .bookmark-btn.bookmarked {
-  background: rgba(255, 210, 70, 0.3);
-  border-color: #ffd246;
-  color: #ffd246;
+  background: rgba(243, 179, 39, 0.2);
+  border-color: rgba(243, 179, 39, 0.5);
+  color: #f7d06d;
 }
 
 .bookmark-btn:disabled {
@@ -124,34 +126,35 @@
 .reader-tabs {
   display: flex;
   gap: 0.5rem;
-  padding: 1rem 2rem;
-  background: #f5f5f5;
-  border-bottom: 2px solid #e0e0e0;
+  padding: 0.875rem 1.75rem;
+  background: var(--surface, #fff);
+  border-bottom: 1px solid var(--border, rgba(26,20,16,0.09));
   flex-wrap: wrap;
+  transition: background 0.38s ease, border-color 0.22s ease;
 }
 
 .tab-button {
-  padding: 0.75rem 1.5rem;
-  background: white;
-  border: 2px solid #e0e0e0;
-  border-radius: 20px;
+  padding: 0.65rem 1.4rem;
+  background: var(--surface-2, #faf6f0);
+  border: 1px solid var(--border, rgba(26,20,16,0.09));
+  border-radius: 999px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 0.95rem;
-  transition: all 0.3s ease;
-  color: #333;
+  font-size: 0.9rem;
+  transition: all 0.22s ease;
+  color: var(--ink, #1a1410);
 }
 
 .tab-button:hover {
-  background: #f0f0f0;
-  transform: translateY(-2px);
+  background: var(--bg-2, #ede7db);
+  transform: translateY(-1px);
 }
 
 .tab-button.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: linear-gradient(135deg, #f7d06d 0%, #f3b327 100%);
+  color: #111;
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 14px rgba(243, 179, 39, 0.3);
 }
 
 /* Main Content */
@@ -808,8 +811,8 @@
 }
 
 .audio-now-playing {
-  background: linear-gradient(135deg, #f0f4ff, #faf0ff);
-  border: 1px solid rgba(100, 80, 200, 0.12);
+  background: linear-gradient(135deg, #faf6ef, #fffdf9);
+  border: 1px solid rgba(201, 150, 26, 0.18);
   border-radius: 16px;
   padding: 1.25rem;
   display: flex;
@@ -822,7 +825,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: #7c3aed;
+  color: #c9961a;
 }
 
 .audio-chapter-name {

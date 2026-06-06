@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import './styles/App.css'
 import BookReader from './components/BookReader'
 import { getBookmarks } from './utils/userLib'
@@ -282,6 +283,13 @@ function App() {
   const [visibleBookCount, setVisibleBookCount] = useState(24)
   const [myBookmarks, setMyBookmarks] = useState([])
   const [bookmarksLoaded, setBookmarksLoaded] = useState(false)
+  const [darkMode, setDarkMode] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
+  }, [darkMode])
 
   useEffect(() => {
     const loadHomeData = async () => {
@@ -505,6 +513,15 @@ function App() {
                 type="button"
               >
                 Search by title, author ...
+              </button>
+              <button
+                className="dark-toggle"
+                onClick={() => setDarkMode((d) => !d)}
+                type="button"
+                aria-label="Toggle dark mode"
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {darkMode ? '☀️' : '🌙'}
               </button>
               <button className="ghost-btn" onClick={() => scrollToSection('why', 'About')} type="button">Login</button>
               <button className="solid-btn" onClick={() => scrollToSection('why', 'About')} type="button">Sign Up</button>
