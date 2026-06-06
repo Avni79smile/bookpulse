@@ -30,8 +30,13 @@ function BookReader({ book, onBack }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [bookmarked, setBookmarked] = useState(false)
   const [bookmarkSaving, setBookmarkSaving] = useState(false)
+  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('reader-font-size') || '16', 10))
+  const [readerTheme, setReaderTheme] = useState(() => localStorage.getItem('reader-theme') || 'light')
+  const [plainMode, setPlainMode] = useState(() => localStorage.getItem('reader-plain-mode') === 'true')
+  const plainScrollRef = useRef(null)
 
   const flipBookRef = useRef(null)
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
 
   const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -64,6 +69,24 @@ function BookReader({ book, onBack }) {
     }, 1500)
     return () => clearTimeout(timer)
   }, [book.id, book.title, selectedChapter, currentPage])
+
+  // Persist reading preferences
+  useEffect(() => { localStorage.setItem('reader-font-size', fontSize) }, [fontSize])
+  useEffect(() => { localStorage.setItem('reader-theme', readerTheme) }, [readerTheme])
+  useEffect(() => { localStorage.setItem('reader-plain-mode', plainMode) }, [plainMode])
+
+  // Keyboard page navigation
+  useEffect(() => {
+    const handleKey = (e) => {
+      const tag = e.target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goToNextPage()
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goToPreviousPage()
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  })
+
 
   const toggleBookmark = useCallback(async () => {
     setBookmarkSaving(true)
@@ -365,6 +388,17 @@ function BookReader({ book, onBack }) {
     setCurrentPage(1)
   }, [selectedChapter, textContent])
 
+  // Auto-switch to plain reader for very large books
+  useEffect(() => {
+    if (paginatedText.length > 120) setPlainMode(true)
+  }, [paginatedText.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const progressPercent = paginatedText.length > 0
+    ? Math.min(100, Math.round((currentPage / paginatedText.length) * 100))
+    : 0
+
+  const clampFontSize = (size) => Math.min(26, Math.max(13, size))
+
   useEffect(() => {
     if (book.source !== 'Google Books' || !book.googleId) return
 
@@ -612,12 +646,76 @@ function BookReader({ book, onBack }) {
                 </div>
               )}
               {textContent && (
-                <div className="text-reader">
+                <div className="text-reader" data-theme={readerTheme} style={{ '--reader-font-size': `${fontSize}px` }}>
+
+                  {/* Reading Toolbar */}
+                  <div className="reading-toolbar">
+                    <div className="toolbar-group">
+                      <span className="toolbar-label">Theme</span>
+                      <button
+                        className={`theme-btn ${readerTheme === 'light' ? 'active' : ''}`}
+                        onClick={() => setReaderTheme('light')}
+                        title="Light theme"
+                      >☀️</button>
+                      <button
+                        className={`theme-btn ${readerTheme === 'sepia' ? 'active' : ''}`}
+                        onClick={() => setReaderTheme('sepia')}
+                        title="Sepia theme"
+                      >📖</button>
+                      <button
+                        className={`theme-btn ${readerTheme === 'dark' ? 'active' : ''}`}
+                        onClick={() => setReaderTheme('dark')}
+                        title="Dark theme"
+                      >🌙</button>
+                    </div>
+                    <div className="toolbar-group">
+                      <span className="toolbar-label">Size</span>
+                      <button
+                        className="font-btn"
+                        onClick={() => setFontSize(s => clampFontSize(s - 1))}
+                        disabled={fontSize <= 13}
+                        title="Decrease font size"
+                      >A−</button>
+                      <span className="font-size-display">{fontSize}px</span>
+                      <button
+                        className="font-btn"
+                        onClick={() => setFontSize(s => clampFontSize(s + 1))}
+                        disabled={fontSize >= 26}
+                        title="Increase font size"
+                      >A+</button>
+                    </div>
+                    <div className="toolbar-group">
+                      <span className="toolbar-label">Mode</span>
+                      <button
+                        className={`mode-btn ${!plainMode ? 'active' : ''}`}
+                        onClick={() => setPlainMode(false)}
+                        title="Flip book mode"
+                      >📄 Flip</button>
+                      <button
+                        className={`mode-btn ${plainMode ? 'active' : ''}`}
+                        onClick={() => setPlainMode(true)}
+                        title="Scroll mode (better for large books)"
+                      >📜 Scroll</button>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  {paginatedText.length > 0 && (
+                    <div className="reading-progress-bar-wrap">
+                      <div
+                        className="reading-progress-bar-fill"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                      <span className="reading-progress-label">{progressPercent}%</span>
+                    </div>
+                  )}
+
                   {!book.isFullAvailable && (
                     <div className="preview-banner">
                       This is a preview. Full access is not available for free.
                     </div>
                   )}
+
                   {chapters.length > 0 ? (
                     <div className="chapter-reader-layout">
                       <aside className="chapter-sidebar">
@@ -643,52 +741,123 @@ function BookReader({ book, onBack }) {
                             onClick={() => setSelectedChapter(Math.max(0, selectedChapter - 1))}
                             disabled={selectedChapter <= 0}
                           >
-                            Previous
+                            ← Prev Chapter
                           </button>
                           <div className="chapter-meta">
-                            Chapter {selectedChapter + 1} of {chapters.length}
+                            Ch. {selectedChapter + 1} / {chapters.length}
                           </div>
                           <button
                             className="control-btn"
                             onClick={() => setSelectedChapter(Math.min(chapters.length - 1, selectedChapter + 1))}
                             disabled={selectedChapter >= chapters.length - 1}
                           >
-                            Next
+                            Next Chapter →
                           </button>
                         </div>
                         <h2 className="chapter-heading">{chapters[selectedChapter]?.title || 'Chapter'}</h2>
 
                         {paginatedText.length > 0 ? (
+                          plainMode ? (
+                            <div
+                              ref={plainScrollRef}
+                              className="plain-reader"
+                              style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}
+                            >
+                              {paginatedText.map((pageText, index) => (
+                                <p key={`plain-ch-${selectedChapter}-${index}`} className="plain-reader-para">{pageText}</p>
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flipbook-controls">
+                                <button className="control-btn" onClick={goToPreviousPage} disabled={currentPage <= 1}>◀ Prev</button>
+                                <span className="flipbook-page-indicator">Page {currentPage} / {paginatedText.length}</span>
+                                <button className="control-btn" onClick={goToNextPage} disabled={currentPage >= paginatedText.length}>Next ▶</button>
+                              </div>
+                              <div className="flipbook-wrapper">
+                                <HTMLFlipBook
+                                  key={`flip-ch-${selectedChapter}`}
+                                  ref={flipBookRef}
+                                  width={560}
+                                  height={720}
+                                  size="stretch"
+                                  minWidth={280}
+                                  maxWidth={860}
+                                  minHeight={320}
+                                  maxHeight={960}
+                                  maxShadowOpacity={isMobile ? 0 : 0.25}
+                                  showCover={false}
+                                  mobileScrollSupport
+                                  usePortrait
+                                  className="flipbook"
+                                  startPage={0}
+                                  drawShadow={!isMobile}
+                                  flippingTime={400}
+                                  useMouseEvents={!isMobile}
+                                  onFlip={(event) => setCurrentPage((event.data || 0) + 1)}
+                                >
+                                  {paginatedText.map((pageText, index) => (
+                                    <div className="flipbook-page" key={`chapter-${selectedChapter}-page-${index}`} style={{ contain: 'layout style' }}>
+                                      <div className="flipbook-page-inner" style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}>
+                                        <div className="flipbook-page-number">{index + 1}</div>
+                                        <pre>{pageText}</pre>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </HTMLFlipBook>
+                              </div>
+                            </>
+                          )
+                        ) : (
+                          <pre className="plain-reader-para">{activeText}</pre>
+                        )}
+                      </section>
+                    </div>
+                  ) : (
+                    <div className="chapter-content chapter-content-single">
+                      {paginatedText.length > 0 ? (
+                        plainMode ? (
+                          <div
+                            ref={plainScrollRef}
+                            className="plain-reader"
+                            style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}
+                          >
+                            {paginatedText.map((pageText, index) => (
+                              <p key={`plain-full-${index}`} className="plain-reader-para">{pageText}</p>
+                            ))}
+                          </div>
+                        ) : (
                           <>
                             <div className="flipbook-controls">
-                              <button className="control-btn" onClick={goToPreviousPage} disabled={currentPage <= 1}>◀ Page</button>
+                              <button className="control-btn" onClick={goToPreviousPage} disabled={currentPage <= 1}>◀ Prev</button>
                               <span className="flipbook-page-indicator">Page {currentPage} / {paginatedText.length}</span>
-                              <button className="control-btn" onClick={goToNextPage} disabled={currentPage >= paginatedText.length}>Page ▶</button>
+                              <button className="control-btn" onClick={goToNextPage} disabled={currentPage >= paginatedText.length}>Next ▶</button>
                             </div>
-
                             <div className="flipbook-wrapper">
                               <HTMLFlipBook
+                                key="flip-full"
                                 ref={flipBookRef}
                                 width={560}
                                 height={720}
                                 size="stretch"
                                 minWidth={280}
-                                maxWidth={900}
+                                maxWidth={860}
                                 minHeight={320}
-                                maxHeight={1000}
-                                maxShadowOpacity={0.35}
+                                maxHeight={960}
+                                maxShadowOpacity={isMobile ? 0 : 0.25}
                                 showCover={false}
                                 mobileScrollSupport
                                 usePortrait
                                 className="flipbook"
                                 startPage={0}
-                                drawShadow
-                                flippingTime={650}
+                                drawShadow={!isMobile}
+                                flippingTime={400}
+                                useMouseEvents={!isMobile}
                                 onFlip={(event) => setCurrentPage((event.data || 0) + 1)}
                               >
                                 {paginatedText.map((pageText, index) => (
-                                  <div className="flipbook-page" key={`chapter-${selectedChapter}-page-${index}`}>
-                                    <div className="flipbook-page-inner">
+                                  <div className="flipbook-page" key={`full-text-page-${index}`} style={{ contain: 'layout style' }}>
+                                    <div className="flipbook-page-inner" style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}>
                                       <div className="flipbook-page-number">{index + 1}</div>
                                       <pre>{pageText}</pre>
                                     </div>
@@ -697,54 +866,9 @@ function BookReader({ book, onBack }) {
                               </HTMLFlipBook>
                             </div>
                           </>
-                        ) : (
-                          <pre>{activeText}</pre>
-                        )}
-                      </section>
-                    </div>
-                  ) : (
-                    <div className="chapter-content chapter-content-single">
-                      {paginatedText.length > 0 ? (
-                        <>
-                          <div className="flipbook-controls">
-                            <button className="control-btn" onClick={goToPreviousPage} disabled={currentPage <= 1}>◀ Page</button>
-                            <span className="flipbook-page-indicator">Page {currentPage} / {paginatedText.length}</span>
-                            <button className="control-btn" onClick={goToNextPage} disabled={currentPage >= paginatedText.length}>Page ▶</button>
-                          </div>
-
-                          <div className="flipbook-wrapper">
-                            <HTMLFlipBook
-                              ref={flipBookRef}
-                              width={560}
-                              height={720}
-                              size="stretch"
-                              minWidth={280}
-                              maxWidth={900}
-                              minHeight={320}
-                              maxHeight={1000}
-                              maxShadowOpacity={0.35}
-                              showCover={false}
-                              mobileScrollSupport
-                              usePortrait
-                              className="flipbook"
-                              startPage={0}
-                              drawShadow
-                              flippingTime={650}
-                              onFlip={(event) => setCurrentPage((event.data || 0) + 1)}
-                            >
-                              {paginatedText.map((pageText, index) => (
-                                <div className="flipbook-page" key={`full-text-page-${index}`}>
-                                  <div className="flipbook-page-inner">
-                                    <div className="flipbook-page-number">{index + 1}</div>
-                                    <pre>{pageText}</pre>
-                                  </div>
-                                </div>
-                              ))}
-                            </HTMLFlipBook>
-                          </div>
-                        </>
+                        )
                       ) : (
-                        <pre>{activeText}</pre>
+                        <pre className="plain-reader-para">{activeText}</pre>
                       )}
                     </div>
                   )}

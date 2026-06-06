@@ -342,7 +342,7 @@ const allowedOrigin = process.env.CORS_ORIGIN || '*'
 app.use(cors({ origin: allowedOrigin }))
 
 // ─── withTimeout — logs the URL + route on abort/error ────────────────────
-const withTimeout = async (url, timeoutMs = 12000, route = 'unknown') => {
+const withTimeout = async (url, timeoutMs = 12000, route = 'unknown', extraHeaders = {}) => {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -351,6 +351,7 @@ const withTimeout = async (url, timeoutMs = 12000, route = 'unknown') => {
       headers: {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
         'Accept': 'application/json,text/plain,text/html;q=0.9,*/*;q=0.8',
+        ...extraHeaders,
       },
     })
     return response
@@ -794,11 +795,14 @@ app.get('/api/movies/trailers', async (req, res) => {
       try {
         // Use core title (before : or ;) for a tighter TMDB search query
         const queryTitle = normalizeTitleForSearch(title).split(/[:;]/)[0].trim() || title
-        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(queryTitle)}&include_adult=false`
+        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(queryTitle)}&include_adult=false`
+        const tmdbHeaders = TMDB_API_KEY
+          ? { Authorization: `Bearer ${TMDB_API_KEY}` }
+          : {}
 
         let searchData
         try {
-          const searchResponse = await withTimeout(tmdbSearchUrl, 12000, ROUTE)
+          const searchResponse = await withTimeout(tmdbSearchUrl, 12000, ROUTE, tmdbHeaders)
           if (!searchResponse.ok) {
             apiLog.warn(ROUTE, `TMDB search ${searchResponse.status} for "${title}"`)
             return null
@@ -832,8 +836,8 @@ app.get('/api/movies/trailers', async (req, res) => {
         // Fetch trailer videos from TMDB
         let trailer = null
         try {
-          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}`
-          const videosResponse = await withTimeout(videosUrl, 12000, ROUTE)
+          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos`
+          const videosResponse = await withTimeout(videosUrl, 12000, ROUTE, tmdbHeaders)
           if (videosResponse.ok) {
             const videosData = await videosResponse.json()
             if (Array.isArray(videosData?.results)) {
