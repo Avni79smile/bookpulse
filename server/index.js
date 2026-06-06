@@ -20,6 +20,55 @@ const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
 
 app.use(express.json())
 
+// ─── Structured API Logger ─────────────────────────────────────────────────
+const apiLog = {
+  info: (route, msg, extra = {}) => {
+    const extras = Object.keys(extra).length ? ' ' + JSON.stringify(extra) : ''
+    console.log(`[API:${route}] ${msg}${extras}`)
+  },
+  warn: (route, msg, extra = {}) => {
+    const extras = Object.keys(extra).length ? ' ' + JSON.stringify(extra) : ''
+    console.warn(`[API:${route}] WARN: ${msg}${extras}`)
+  },
+  error: (route, msg, err, extra = {}) => {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const errCode = err?.code ? ` (code=${err.code})` : ''
+    const extras = Object.keys(extra).length ? ' ' + JSON.stringify(extra) : ''
+    console.error(`[API:${route}] ERROR: ${msg} — ${errMsg}${errCode}${extras}`)
+  },
+}
+
+// ─── Simple In-Memory TTL Cache ────────────────────────────────────────────
+class SimpleCache {
+  constructor() { this._store = new Map() }
+
+  get(key) {
+    const entry = this._store.get(key)
+    if (!entry) return null
+    if (Date.now() > entry.expiresAt) { this._store.delete(key); return null }
+    return entry.value
+  }
+
+  set(key, value, ttlMs) {
+    this._store.set(key, { value, expiresAt: Date.now() + ttlMs })
+  }
+
+  has(key) { return this.get(key) !== null }
+
+  size() { return this._store.size }
+}
+
+const cache = new SimpleCache()
+
+const CACHE_TTL = {
+  IA_SEARCH:    5  * 60 * 1000,   // 5 min — IA search results
+  IA_META:      10 * 60 * 1000,   // 10 min — item metadata rarely changes
+  LIBRIVOX:     5  * 60 * 1000,   // 5 min
+  GOOGLE_BOOKS: 10 * 60 * 1000,   // 10 min
+  OPEN_LIBRARY: 10 * 60 * 1000,   // 10 min
+  MOVIE_TRAIL:  30 * 60 * 1000,   // 30 min — trailer results are very stable
+}
+
 // ─── PostgreSQL Database ───────────────────────────────────────────────────
 const pool = hasDatabaseUrl ? new Pool({ connectionString: process.env.DATABASE_URL }) : null
 let databaseAvailable = Boolean(pool)
@@ -39,10 +88,7 @@ const useMemoryFallback = (err, context) => {
 }
 
 const initDb = async () => {
-  if (!pool) {
-    return
-  }
-
+  if (!pool) { return }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS bookmarks (
@@ -266,7 +312,8 @@ process.on('uncaughtException', (error) => console.error('Uncaught exception:', 
 const allowedOrigin = process.env.CORS_ORIGIN || '*'
 app.use(cors({ origin: allowedOrigin }))
 
-const withTimeout = async (url, timeoutMs = 12000) => {
+// ─── withTimeout — logs the URL + route on abort/error ────────────────────
+const withTimeout = async (url, timeoutMs = 12000, route = 'unknown') => {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -278,6 +325,13 @@ const withTimeout = async (url, timeoutMs = 12000) => {
       },
     })
     return response
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      apiLog.error(route, `Timeout after ${timeoutMs}ms`, err, { url })
+    } else {
+      apiLog.error(route, 'Fetch failed', err, { url })
+    }
+    throw err
   } finally {
     clearTimeout(id)
   }
@@ -298,11 +352,11 @@ const assertAllowedUrl = (url) => {
 
 // ─── Routes ────────────────────────────────────────────────────────────────
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }))
+app.get('/api/health', (_req, res) => res.json({ ok: true, cacheSize: cache.size() }))
 
 app.get('/', (_req, res) => res.status(200).send('BookPulse API running. Open /api/health for status.'))
 
-// Gutenberg — now served from embedded catalog (no external network call)
+// Gutenberg — served from embedded catalog (no network call)
 app.get('/api/gutenberg/search', (req, res) => {
   try {
     const query = req.query.query || ''
@@ -310,18 +364,22 @@ app.get('/api/gutenberg/search', (req, res) => {
     const data = searchCatalog(query, page)
     res.json(data)
   } catch (err) {
-    console.error('Gutenberg search error:', err.message)
+    apiLog.error('gutenberg/search', 'Catalog search failed', err)
     res.status(500).json({ error: 'Gutenberg search failed', results: [] })
   }
 })
 
-// Gutenberg file proxy (unchanged — gutenberg.org files work fine)
+// Gutenberg file proxy
 app.get('/api/gutenberg/file', async (req, res) => {
+  const ROUTE = 'gutenberg/file'
   try {
     const url = req.query.url
     if (!url || !assertAllowedUrl(url)) {
+      apiLog.warn(ROUTE, 'Rejected disallowed URL', { url })
       res.status(400).json({ error: 'Invalid URL' }); return
     }
+
+    // Try curl first (handles redirects and compression better)
     try {
       const { stdout } = await execFileAsync(
         'curl',
@@ -332,63 +390,130 @@ app.get('/api/gutenberg/file', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8')
         res.send(stdout); return
       }
+      apiLog.warn(ROUTE, 'curl returned empty body, falling back to fetch', { url })
     } catch (curlErr) {
-      console.error('[gutenberg/file] curl failed:', curlErr.message)
+      apiLog.warn(ROUTE, 'curl failed, falling back to fetch', curlErr, { url })
     }
-    const response = await withTimeout(url, 25000)
-    if (!response.ok) throw new Error(`Upstream responded ${response.status}`)
+
+    // Fallback: native fetch
+    const response = await withTimeout(url, 25000, ROUTE)
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { url })
+      throw new Error(`Upstream responded ${response.status}`)
+    }
     const text = await response.text()
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
     res.send(text)
-  } catch (e) {
-    console.error('[gutenberg/file] failed:', e.message)
-    res.status(500).json({ error: 'Gutenberg file failed' })
+  } catch (err) {
+    apiLog.error(ROUTE, 'Failed to fetch book file', err, { url: req.query.url })
+    res.status(500).json({ error: 'Gutenberg file fetch failed. The book may be temporarily unavailable.' })
   }
 })
 
-// Internet Archive — search (audiobooks + texts)
+// Internet Archive — search
 app.get('/api/ia/search', async (req, res) => {
+  const ROUTE = 'ia/search'
   try {
     const query = req.query.query || 'fiction'
     const page = req.query.page || 1
     const rows = req.query.rows || 50
+    const cacheKey = `ia:search:${query}:${page}:${rows}`
+
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { query, page })
+      return res.json(cached)
+    }
+
     const url = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(query)}&fl=identifier,title,creator,description,date,mediatype,format&output=json&rows=${rows}&page=${page}`
-    const response = await withTimeout(url)
+    const response = await withTimeout(url, 12000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { query })
+      return res.status(502).json({ error: 'Internet Archive search unavailable', response: { docs: [] } })
+    }
+
     const data = await response.json()
+    cache.set(cacheKey, data, CACHE_TTL.IA_SEARCH)
     res.json(data)
-  } catch { res.status(500).json({ error: 'IA search failed' }) }
+  } catch (err) {
+    apiLog.error(ROUTE, 'Search failed', err, { query: req.query.query })
+    res.status(502).json({ error: 'Internet Archive search failed. Try again shortly.', response: { docs: [] } })
+  }
 })
 
+// Internet Archive — metadata
 app.get('/api/ia/metadata/:id', async (req, res) => {
+  const ROUTE = 'ia/metadata'
+  const id = req.params.id
   try {
-    const url = `https://archive.org/metadata/${req.params.id}`
-    const response = await withTimeout(url)
+    const cacheKey = `ia:meta:${id}`
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { id })
+      return res.json(cached)
+    }
+
+    const url = `https://archive.org/metadata/${id}`
+    const response = await withTimeout(url, 12000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { id })
+      return res.status(502).json({ error: 'Could not load item metadata', metadata: {} })
+    }
+
     const data = await response.json()
+    cache.set(cacheKey, data, CACHE_TTL.IA_META)
     res.json(data)
-  } catch { res.status(500).json({ error: 'IA metadata failed' }) }
+  } catch (err) {
+    apiLog.error(ROUTE, 'Metadata fetch failed', err, { id })
+    res.status(502).json({ error: 'Internet Archive metadata unavailable.', metadata: {} })
+  }
 })
 
+// Internet Archive — download proxy
 app.get('/api/ia/download', async (req, res) => {
+  const ROUTE = 'ia/download'
   try {
     const item = req.query.item
     const file = req.query.file
-    if (!item || !file) { res.status(400).json({ error: 'Missing item or file' }); return }
+    if (!item || !file) {
+      apiLog.warn(ROUTE, 'Missing item or file params', { item, file })
+      res.status(400).json({ error: 'Missing item or file' }); return
+    }
+
     const url = `https://archive.org/download/${item}/${file}`
-    const response = await withTimeout(url)
-    if (!response.ok) { res.status(response.status).json({ error: 'IA download upstream error' }); return }
+    const response = await withTimeout(url, 20000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { item, file })
+      res.status(response.status).json({ error: 'Internet Archive download unavailable' }); return
+    }
+
     res.setHeader('content-type', response.headers.get('content-type') || 'application/octet-stream')
     const buffer = Buffer.from(await response.arrayBuffer())
     res.send(buffer)
-  } catch { res.status(500).json({ error: 'IA download failed' }) }
+  } catch (err) {
+    apiLog.error(ROUTE, 'Download proxy failed', err, { item: req.query.item, file: req.query.file })
+    res.status(502).json({ error: 'Internet Archive download failed. The file may be temporarily unavailable.' })
+  }
 })
 
-// LibriVox — routed through Internet Archive LibriVox collection
+// LibriVox — routed through Internet Archive
 app.get('/api/librivox/search', async (req, res) => {
+  const ROUTE = 'librivox/search'
   try {
     const query = req.query.query || ''
     const page = parseInt(req.query.page, 10) || 1
     const rows = 50
     const offset = (page - 1) * rows
+    const cacheKey = `librivox:${query}:${page}`
+
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { query, page })
+      return res.json(cached)
+    }
 
     let q
     if (query) {
@@ -398,7 +523,13 @@ app.get('/api/librivox/search', async (req, res) => {
     }
 
     const url = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl=identifier,title,creator,description,date,subject,downloads&output=json&rows=${rows}&start=${offset}&sort[]=downloads+desc`
-    const response = await withTimeout(url, 12000)
+    const response = await withTimeout(url, 12000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { query })
+      return res.status(502).json({ error: 'LibriVox search unavailable', books: [] })
+    }
+
     const data = await response.json()
     const docs = data?.response?.docs || []
 
@@ -417,67 +548,141 @@ app.get('/api/librivox/search', async (req, res) => {
       archiveId: item.identifier,
     }))
 
-    res.json({ books })
+    const result = { books }
+    cache.set(cacheKey, result, CACHE_TTL.LIBRIVOX)
+    res.json(result)
   } catch (err) {
-    console.error('LibriVox/IA search failed:', err.message)
-    res.status(500).json({ error: 'LibriVox search failed', books: [] })
+    apiLog.error(ROUTE, 'Search failed', err, { query: req.query.query })
+    res.status(502).json({ error: 'LibriVox search failed. Try again shortly.', books: [] })
   }
 })
 
 // Google Books
 app.get('/api/google/books', async (req, res) => {
+  const ROUTE = 'google/books'
   try {
     const query = req.query.query || 'fiction'
     const startIndex = req.query.startIndex || 0
     const filter = req.query.filter || ''
+    const cacheKey = `google:${query}:${startIndex}:${filter}`
+
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { query, startIndex })
+      return res.json(cached)
+    }
+
     const apiKey = process.env.GOOGLE_BOOKS_KEY
     const keyPart = apiKey ? `&key=${apiKey}` : ''
     const filterPart = filter ? `&filter=${filter}` : ''
     const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=40&startIndex=${startIndex}&printType=books${filterPart}${keyPart}`
-    const response = await withTimeout(url)
+
+    const response = await withTimeout(url, 10000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { query })
+      return res.status(502).json({ error: 'Google Books unavailable', items: [], totalItems: 0 })
+    }
+
     const data = await response.json()
+    cache.set(cacheKey, data, CACHE_TTL.GOOGLE_BOOKS)
     res.json(data)
-  } catch { res.status(500).json({ error: 'Google Books failed' }) }
+  } catch (err) {
+    apiLog.error(ROUTE, 'Search failed', err, { query: req.query.query })
+    res.status(502).json({ error: 'Google Books search failed. Try again shortly.', items: [], totalItems: 0 })
+  }
 })
 
 // Open Library
 app.get('/api/openlibrary/search', async (req, res) => {
+  const ROUTE = 'openlibrary/search'
   try {
     const query = req.query.query || 'fiction'
     const page = req.query.page || 1
+    const cacheKey = `openlibrary:${query}:${page}`
+
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { query, page })
+      return res.json(cached)
+    }
+
     const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(query)}&has_fulltext=true&public_scan_b=true&limit=50&page=${page}`
-    const response = await withTimeout(url)
+    const response = await withTimeout(url, 12000, ROUTE)
+
+    if (!response.ok) {
+      apiLog.error(ROUTE, `Upstream ${response.status}`, null, { query })
+      return res.status(502).json({ error: 'Open Library unavailable', docs: [], numFound: 0 })
+    }
+
     const data = await response.json()
+    cache.set(cacheKey, data, CACHE_TTL.OPEN_LIBRARY)
     res.json(data)
-  } catch { res.status(500).json({ error: 'Open Library search failed' }) }
+  } catch (err) {
+    apiLog.error(ROUTE, 'Search failed', err, { query: req.query.query })
+    res.status(502).json({ error: 'Open Library search failed. Try again shortly.', docs: [], numFound: 0 })
+  }
 })
 
 // Movie trailers
 app.get('/api/movies/trailers', async (req, res) => {
+  const ROUTE = 'movies/trailers'
   try {
     const titles = typeof req.query.titles === 'string' && req.query.titles.trim()
       ? req.query.titles.split(',').map(item => item.trim()).filter(Boolean)
       : DEFAULT_ADAPTATION_TITLES
 
     const selectedTitles = titles.slice(0, 12)
+    const cacheKey = `trailers:${selectedTitles.join('|')}`
+
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      apiLog.info(ROUTE, 'Cache hit', { count: selectedTitles.length })
+      return res.json(cached)
+    }
+
     const results = await Promise.all(selectedTitles.map(async (title) => {
       try {
         const queryTitle = normalizeTitleForSearch(title).split(':')[0].trim() || title
         const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(queryTitle)}&include_adult=false`
-        const searchResponse = await withTimeout(tmdbSearchUrl, 12000)
-        const searchData = await searchResponse.json()
+
+        let searchData
+        try {
+          const searchResponse = await withTimeout(tmdbSearchUrl, 12000, ROUTE)
+          if (!searchResponse.ok) {
+            apiLog.warn(ROUTE, `TMDB search ${searchResponse.status} for "${title}"`)
+            return null
+          }
+          searchData = await searchResponse.json()
+        } catch (tmdbErr) {
+          apiLog.error(ROUTE, `TMDB search failed for "${title}"`, tmdbErr)
+          return null
+        }
+
         const movie = Array.isArray(searchData?.results)
           ? [...searchData.results].filter(item => item?.title).sort((a, b) => scoreMovieMatch(title, b) - scoreMovieMatch(title, a))[0]
           : null
 
-        if (!movie?.id) return null
+        if (!movie?.id) {
+          apiLog.warn(ROUTE, `No TMDB match for "${title}"`)
+          return null
+        }
 
-        const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}`
-        const videosResponse = await withTimeout(videosUrl, 12000)
-        const videosData = await videosResponse.json()
-        const trailer = Array.isArray(videosData?.results)
-          ? videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') || videosData.results.find(v => v.site === 'YouTube')
-          : null
+        let trailer = null
+        try {
+          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}`
+          const videosResponse = await withTimeout(videosUrl, 12000, ROUTE)
+          if (videosResponse.ok) {
+            const videosData = await videosResponse.json()
+            trailer = Array.isArray(videosData?.results)
+              ? videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') || videosData.results.find(v => v.site === 'YouTube')
+              : null
+          } else {
+            apiLog.warn(ROUTE, `TMDB videos ${videosResponse.status} for movie ${movie.id}`)
+          }
+        } catch (videoErr) {
+          apiLog.warn(ROUTE, `TMDB videos fetch failed for movie ${movie.id}`, videoErr)
+        }
 
         const releaseYear = typeof movie.release_date === 'string' ? movie.release_date.slice(0, 4) : ''
         const fallbackPoster = movie.backdrop_path
@@ -490,13 +695,21 @@ app.get('/api/movies/trailers', async (req, res) => {
         if (OMDB_KEY) {
           try {
             const omdbUrl = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(movie.title)}${releaseYear ? `&y=${releaseYear}` : ''}`
-            const omdbResponse = await withTimeout(omdbUrl, 10000)
-            const omdbData = await omdbResponse.json()
-            if (omdbData?.Response === 'True') {
-              omdbOverview = typeof omdbData.Plot === 'string' ? omdbData.Plot : ''
-              omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
+            const omdbResponse = await withTimeout(omdbUrl, 8000, ROUTE)
+            if (omdbResponse.ok) {
+              const omdbData = await omdbResponse.json()
+              if (omdbData?.Response === 'True') {
+                omdbOverview = typeof omdbData.Plot === 'string' ? omdbData.Plot : ''
+                omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
+              } else {
+                apiLog.warn(ROUTE, `OMDB no result for "${movie.title}"`, { reason: omdbData?.Error })
+              }
+            } else {
+              apiLog.warn(ROUTE, `OMDB ${omdbResponse.status} for "${movie.title}"`)
             }
-          } catch (omdbErr) { console.warn('OMDB lookup failed:', omdbErr?.message) }
+          } catch (omdbErr) {
+            apiLog.warn(ROUTE, `OMDB lookup failed for "${movie.title}"`, omdbErr)
+          }
         }
 
         return {
@@ -508,13 +721,21 @@ app.get('/api/movies/trailers', async (req, res) => {
           overview: omdbOverview || movie.overview || 'Classic public-domain adaptation.',
           sourceBookTitle: title,
         }
-      } catch { return null }
+      } catch (innerErr) {
+        apiLog.error(ROUTE, `Unhandled error for title "${title}"`, innerErr)
+        return null
+      }
     }))
 
-    res.json({ results: results.filter(Boolean) })
+    const filtered = results.filter(Boolean)
+    apiLog.info(ROUTE, `Resolved ${filtered.length}/${selectedTitles.length} trailers`)
+
+    const result = { results: filtered }
+    if (filtered.length > 0) cache.set(cacheKey, result, CACHE_TTL.MOVIE_TRAIL)
+    res.json(result)
   } catch (err) {
-    console.error('Movie trailers fetch failed:', err)
-    res.status(500).json({ error: 'Movie trailers fetch failed' })
+    apiLog.error(ROUTE, 'Top-level failure', err)
+    res.status(502).json({ error: 'Movie trailers fetch failed. Try again shortly.', results: [] })
   }
 })
 
@@ -523,16 +744,15 @@ app.get('/api/movies/trailers', async (req, res) => {
 const loadBookmarksForDevice = async (deviceId) => {
   if (databaseAvailable && pool) {
     try {
-    const result = await pool.query(
-      'SELECT * FROM bookmarks WHERE device_id = $1 ORDER BY created_at DESC',
-      [deviceId]
-    )
-    return result.rows
+      const result = await pool.query(
+        'SELECT * FROM bookmarks WHERE device_id = $1 ORDER BY created_at DESC',
+        [deviceId]
+      )
+      return result.rows
     } catch (err) {
       useMemoryFallback(err, 'Get bookmarks error')
     }
   }
-
   return Array.from(getDeviceStore(bookmarksStore, deviceId).values())
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 }
@@ -540,29 +760,23 @@ const loadBookmarksForDevice = async (deviceId) => {
 const saveBookmarkForDevice = async ({ device_id, book_id, title, author, image, source }) => {
   if (databaseAvailable && pool) {
     try {
-    await pool.query(
-      `INSERT INTO bookmarks (device_id, book_id, title, author, image, source)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (device_id, book_id) DO NOTHING`,
-      [device_id, book_id, title, author || '', image || '', source || '']
-    )
-    return
+      await pool.query(
+        `INSERT INTO bookmarks (device_id, book_id, title, author, image, source)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (device_id, book_id) DO NOTHING`,
+        [device_id, book_id, title, author || '', image || '', source || '']
+      )
+      return
     } catch (err) {
       useMemoryFallback(err, 'Add bookmark error')
     }
   }
-
   const deviceStore = getDeviceStore(bookmarksStore, device_id)
   const key = String(book_id)
   if (!deviceStore.has(key)) {
     deviceStore.set(key, {
-      id: key,
-      device_id,
-      book_id: key,
-      title,
-      author: author || '',
-      image: image || '',
-      source: source || '',
+      id: key, device_id, book_id: key, title,
+      author: author || '', image: image || '', source: source || '',
       created_at: new Date().toISOString(),
     })
   }
@@ -571,58 +785,51 @@ const saveBookmarkForDevice = async ({ device_id, book_id, title, author, image,
 const deleteBookmarkForDevice = async (deviceId, bookId) => {
   if (databaseAvailable && pool) {
     try {
-    await pool.query('DELETE FROM bookmarks WHERE device_id = $1 AND book_id = $2', [deviceId, bookId])
-    return
+      await pool.query('DELETE FROM bookmarks WHERE device_id = $1 AND book_id = $2', [deviceId, bookId])
+      return
     } catch (err) {
       useMemoryFallback(err, 'Delete bookmark error')
     }
   }
-
   getDeviceStore(bookmarksStore, deviceId).delete(String(bookId))
 }
 
 const loadProgressForBook = async (deviceId, bookId) => {
   if (databaseAvailable && pool) {
     try {
-    const result = await pool.query(
-      'SELECT * FROM reading_progress WHERE device_id = $1 AND book_id = $2',
-      [deviceId, bookId]
-    )
-    return result.rows[0] || null
+      const result = await pool.query(
+        'SELECT * FROM reading_progress WHERE device_id = $1 AND book_id = $2',
+        [deviceId, bookId]
+      )
+      return result.rows[0] || null
     } catch (err) {
       useMemoryFallback(err, 'Get progress error')
     }
   }
-
   return getDeviceStore(progressStore, deviceId).get(String(bookId)) || null
 }
 
 const saveProgressForBook = async ({ device_id, book_id, title, chapter, position }) => {
   if (databaseAvailable && pool) {
     try {
-    await pool.query(
-      `INSERT INTO reading_progress (device_id, book_id, title, chapter, position)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (device_id, book_id) DO UPDATE
-       SET chapter = EXCLUDED.chapter, position = EXCLUDED.position,
-           title = EXCLUDED.title, updated_at = NOW()`,
-      [device_id, book_id, title || '', chapter || 0, position || 0]
-    )
-    return
+      await pool.query(
+        `INSERT INTO reading_progress (device_id, book_id, title, chapter, position)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (device_id, book_id) DO UPDATE
+         SET chapter = EXCLUDED.chapter, position = EXCLUDED.position,
+             title = EXCLUDED.title, updated_at = NOW()`,
+        [device_id, book_id, title || '', chapter || 0, position || 0]
+      )
+      return
     } catch (err) {
       useMemoryFallback(err, 'Save progress error')
     }
   }
-
   const deviceStore = getDeviceStore(progressStore, device_id)
   const key = String(book_id)
   deviceStore.set(key, {
-    id: key,
-    device_id,
-    book_id: key,
-    title: title || '',
-    chapter: chapter || 0,
-    position: position || 0,
+    id: key, device_id, book_id: key, title: title || '',
+    chapter: chapter || 0, position: position || 0,
     updated_at: new Date().toISOString(),
   })
 }
@@ -630,16 +837,15 @@ const saveProgressForBook = async ({ device_id, book_id, title, chapter, positio
 const loadAllProgressForDevice = async (deviceId) => {
   if (databaseAvailable && pool) {
     try {
-    const result = await pool.query(
-      'SELECT * FROM reading_progress WHERE device_id = $1 ORDER BY updated_at DESC',
-      [deviceId]
-    )
-    return result.rows
+      const result = await pool.query(
+        'SELECT * FROM reading_progress WHERE device_id = $1 ORDER BY updated_at DESC',
+        [deviceId]
+      )
+      return result.rows
     } catch (err) {
       useMemoryFallback(err, 'Get all progress error')
     }
   }
-
   return Array.from(getDeviceStore(progressStore, deviceId).values())
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
 }
@@ -652,7 +858,7 @@ app.get('/api/bookmarks', async (req, res) => {
     const bookmarks = await loadBookmarksForDevice(device_id)
     res.json({ bookmarks })
   } catch (err) {
-    console.error('Get bookmarks error:', err.message)
+    apiLog.error('bookmarks/get', 'Failed to fetch bookmarks', err, { device_id })
     res.status(500).json({ error: 'Failed to fetch bookmarks' })
   }
 })
@@ -665,7 +871,7 @@ app.post('/api/bookmarks', async (req, res) => {
     await saveBookmarkForDevice({ device_id, book_id, title, author, image, source })
     res.json({ success: true })
   } catch (err) {
-    console.error('Add bookmark error:', err.message)
+    apiLog.error('bookmarks/add', 'Failed to save bookmark', err, { device_id, book_id })
     res.status(500).json({ error: 'Failed to add bookmark' })
   }
 })
@@ -678,7 +884,7 @@ app.delete('/api/bookmarks', async (req, res) => {
     await deleteBookmarkForDevice(device_id, book_id)
     res.json({ success: true })
   } catch (err) {
-    console.error('Delete bookmark error:', err.message)
+    apiLog.error('bookmarks/delete', 'Failed to delete bookmark', err, { device_id, book_id })
     res.status(500).json({ error: 'Failed to delete bookmark' })
   }
 })
@@ -691,7 +897,7 @@ app.get('/api/progress', async (req, res) => {
     const progress = await loadProgressForBook(device_id, book_id)
     res.json({ progress })
   } catch (err) {
-    console.error('Get progress error:', err.message)
+    apiLog.error('progress/get', 'Failed to fetch progress', err, { device_id, book_id })
     res.status(500).json({ error: 'Failed to fetch progress' })
   }
 })
@@ -704,7 +910,7 @@ app.put('/api/progress', async (req, res) => {
     await saveProgressForBook({ device_id, book_id, title, chapter, position })
     res.json({ success: true })
   } catch (err) {
-    console.error('Save progress error:', err.message)
+    apiLog.error('progress/save', 'Failed to save progress', err, { device_id, book_id })
     res.status(500).json({ error: 'Failed to save progress' })
   }
 })
@@ -717,7 +923,7 @@ app.get('/api/progress/all', async (req, res) => {
     const progress = await loadAllProgressForDevice(device_id)
     res.json({ progress })
   } catch (err) {
-    console.error('Get all progress error:', err.message)
+    apiLog.error('progress/all', 'Failed to fetch all progress', err, { device_id })
     res.status(500).json({ error: 'Failed to fetch progress' })
   }
 })
