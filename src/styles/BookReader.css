@@ -788,6 +788,193 @@
   margin-left: 0.75rem;
 }
 
+/* ── New audio chapter player ─────────────────────────────────────────────── */
+.audio-resolving {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 0;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.audio-chapter-player {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+  text-align: left;
+}
+
+.audio-now-playing {
+  background: linear-gradient(135deg, #f0f4ff, #faf0ff);
+  border: 1px solid rgba(100, 80, 200, 0.12);
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.audio-chapter-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #7c3aed;
+}
+
+.audio-chapter-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e1e2e;
+  line-height: 1.4;
+}
+
+.audio-player {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 12px;
+  margin: 0.25rem 0;
+}
+
+.audio-chapter-nav {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.audio-nav-btn {
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(100, 80, 200, 0.2);
+  background: rgba(124, 58, 237, 0.08);
+  color: #5b21b6;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.audio-nav-btn:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.15);
+  transform: translateY(-1px);
+}
+
+.audio-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.audio-chapter-broken {
+  background: #fff8f0;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.audio-chapter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.audio-chapter-list h4 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #6b7280;
+  margin: 0 0 0.5rem;
+}
+
+.audio-chapter-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-right: 0.25rem;
+}
+
+.audio-chapter-scroll::-webkit-scrollbar { width: 5px; }
+.audio-chapter-scroll::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+.audio-chapter-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+.audio-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.88rem;
+  text-align: left;
+  transition: all 0.18s ease;
+  color: #374151;
+}
+
+.audio-chapter-row:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.06);
+  border-color: rgba(124, 58, 237, 0.12);
+}
+
+.audio-chapter-row.active {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(79, 70, 229, 0.08));
+  border-color: rgba(124, 58, 237, 0.2);
+  color: #4c1d95;
+  font-weight: 600;
+}
+
+.audio-chapter-row.broken {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.audio-ch-num {
+  min-width: 24px;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.audio-chapter-row.active .audio-ch-num { color: #7c3aed; }
+
+.audio-ch-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-ch-playing {
+  font-size: 0.75rem;
+  color: #7c3aed;
+  animation: pulse-text 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.audio-ch-broken { font-size: 0.8rem; }
+
+.audio-ch-dur {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
 /* Additional styles borrowed from BookViewer to harmonize reader appearance */
 .viewer-header {
   display: flex;

@@ -61,12 +61,13 @@ class SimpleCache {
 const cache = new SimpleCache()
 
 const CACHE_TTL = {
-  IA_SEARCH:    5  * 60 * 1000,   // 5 min — IA search results
-  IA_META:      10 * 60 * 1000,   // 10 min — item metadata rarely changes
-  LIBRIVOX:     5  * 60 * 1000,   // 5 min
-  GOOGLE_BOOKS: 10 * 60 * 1000,   // 10 min
-  OPEN_LIBRARY: 10 * 60 * 1000,   // 10 min
-  MOVIE_TRAIL:  30 * 60 * 1000,   // 30 min — trailer results are very stable
+  IA_SEARCH:     5  * 60 * 1000,   // 5 min — IA search results
+  IA_META:       10 * 60 * 1000,   // 10 min — item metadata rarely changes
+  LIBRIVOX:      5  * 60 * 1000,   // 5 min
+  GOOGLE_BOOKS:  10 * 60 * 1000,   // 10 min
+  OPEN_LIBRARY:  10 * 60 * 1000,   // 10 min
+  MOVIE_TRAIL:   30 * 60 * 1000,   // 30 min — trailer results are very stable
+  AUDIO_RESOLVE: 30 * 60 * 1000,   // 30 min — resolved chapter lists are stable
 }
 
 // ─── PostgreSQL Database ───────────────────────────────────────────────────
@@ -469,6 +470,125 @@ app.get('/api/ia/metadata/:id', async (req, res) => {
     apiLog.error(ROUTE, 'Metadata fetch failed', err, { id })
     res.status(502).json({ error: 'Internet Archive metadata unavailable.', metadata: {} })
   }
+})
+
+// Audio resolve — fetch + validate chapters for a book (IA metadata → clean chapter list)
+// Falls back to LibriVox search by title if no archiveId is supplied.
+app.get('/api/audio/resolve', async (req, res) => {
+  const ROUTE = 'audio/resolve'
+  const { archiveId, title } = req.query
+
+  if (!archiveId && !title) {
+    return res.status(400).json({ error: 'archiveId or title required', chapters: [] })
+  }
+
+  const cacheKey = `audio:resolve:${archiveId || ''}:${(title || '').toLowerCase().replace(/\s+/g, '_')}`
+  const cached = cache.get(cacheKey)
+  if (cached) {
+    apiLog.info(ROUTE, 'Cache hit', { archiveId, title })
+    return res.json(cached)
+  }
+
+  // Helper: clean a filename into a readable chapter title
+  const cleanTitle = (raw, index) => {
+    if (!raw || typeof raw !== 'string') return `Chapter ${index + 1}`
+    return raw
+      .replace(/\.(mp3|m4a|ogg|opus|flac)$/i, '')
+      .replace(/_/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim() || `Chapter ${index + 1}`
+  }
+
+  // Helper: extract chapters from IA metadata files array
+  const extractChapters = (files, id) => {
+    const audioExts = /\.(mp3|m4a|ogg|opus)$/i
+    // Prefer originals; fall back to derivatives only if no originals exist
+    const originals = files.filter(f => f.name && audioExts.test(f.name) && f.source === 'original')
+    const pool = originals.length > 0 ? originals : files.filter(f => f.name && audioExts.test(f.name) && f.source !== 'derivative' /* include unknown source */)
+    const finalPool = pool.length > 0 ? pool : files.filter(f => f.name && audioExts.test(f.name))
+
+    // Sort by track number, then by filename numerics
+    finalPool.sort((a, b) => {
+      const tA = parseInt(a.track) || parseInt(a.name?.match(/(\d+)/)?.[1]) || 0
+      const tB = parseInt(b.track) || parseInt(b.name?.match(/(\d+)/)?.[1]) || 0
+      return tA - tB
+    })
+
+    return finalPool.map((f, idx) => ({
+      id: idx,
+      title: f.title ? cleanTitle(f.title, idx) : cleanTitle(f.name, idx),
+      audioUrl: `https://archive.org/download/${id}/${encodeURIComponent(f.name)}`,
+      duration: f.length ? parseFloat(f.length) : 0,
+      format: f.format || '',
+    }))
+  }
+
+  // Step 1: try the provided archiveId first
+  if (archiveId) {
+    try {
+      const metaUrl = `https://archive.org/metadata/${archiveId}`
+      const metaResp = await withTimeout(metaUrl, 12000, ROUTE)
+      if (metaResp.ok) {
+        const meta = await metaResp.json()
+        const restricted = meta?.metadata?.['access-restricted'] === 'true' || meta?.metadata?.access_restricted === 'true'
+        if (!restricted && Array.isArray(meta?.files)) {
+          const chapters = extractChapters(meta.files, archiveId)
+          if (chapters.length > 0) {
+            const result = { chapters, archiveId, source: 'ia_metadata', total: chapters.length }
+            cache.set(cacheKey, result, CACHE_TTL.AUDIO_RESOLVE)
+            apiLog.info(ROUTE, `Resolved ${chapters.length} chapters from IA metadata`, { archiveId })
+            return res.json(result)
+          }
+        }
+        if (restricted) {
+          apiLog.warn(ROUTE, 'Archive item is access-restricted', { archiveId })
+          const result = { chapters: [], archiveId, source: 'ia_metadata', total: 0, restricted: true }
+          cache.set(cacheKey, result, CACHE_TTL.AUDIO_RESOLVE)
+          return res.json(result)
+        }
+      }
+    } catch (err) {
+      apiLog.warn(ROUTE, 'IA metadata fetch failed for archiveId, trying title search', { archiveId, err: err.message })
+    }
+  }
+
+  // Step 2: fall back to LibriVox/IA search by title
+  if (title) {
+    try {
+      const q = `(title:(${title}) OR creator:(${title})) AND collection:librivoxaudio AND mediatype:audio`
+      const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl=identifier,title,creator&output=json&rows=5&sort[]=downloads+desc`
+      const searchResp = await withTimeout(searchUrl, 10000, ROUTE)
+      if (searchResp.ok) {
+        const searchData = await searchResp.json()
+        const docs = searchData?.response?.docs || []
+        if (docs.length > 0) {
+          const bestId = docs[0].identifier
+          const metaUrl = `https://archive.org/metadata/${bestId}`
+          const metaResp = await withTimeout(metaUrl, 12000, ROUTE)
+          if (metaResp.ok) {
+            const meta = await metaResp.json()
+            if (Array.isArray(meta?.files)) {
+              const chapters = extractChapters(meta.files, bestId)
+              if (chapters.length > 0) {
+                const result = { chapters, archiveId: bestId, source: 'librivox_search', total: chapters.length }
+                cache.set(cacheKey, result, CACHE_TTL.AUDIO_RESOLVE)
+                apiLog.info(ROUTE, `Resolved ${chapters.length} chapters via title search`, { title, foundId: bestId })
+                return res.json(result)
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      apiLog.error(ROUTE, 'Title fallback search failed', err, { title })
+    }
+  }
+
+  // Nothing found
+  const empty = { chapters: [], archiveId: archiveId || null, source: 'none', total: 0 }
+  cache.set(cacheKey, empty, 2 * 60 * 1000) // cache "not found" for 2 min only
+  apiLog.warn(ROUTE, 'No audio resolved', { archiveId, title })
+  res.json(empty)
 })
 
 // Internet Archive — download proxy

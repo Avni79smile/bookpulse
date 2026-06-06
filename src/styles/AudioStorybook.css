@@ -783,6 +783,106 @@
   50% { height: 14px; }
 }
 
+/* No Audio State */
+.no-audio-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 1.25rem;
+  z-index: 10;
+  padding: 2rem;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.no-audio-icon {
+  font-size: 4rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 20px rgba(255,255,255,0.2));
+}
+
+.no-audio-state h2 {
+  font-size: 1.6rem;
+  margin: 0;
+  font-weight: 700;
+  background: linear-gradient(to right, #fff, rgba(255,255,255,0.7));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.no-audio-state p {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.55);
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.no-audio-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 0.5rem;
+}
+
+.no-audio-btn {
+  display: block;
+  width: 100%;
+  padding: 0.8rem 1.5rem;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: system-ui, sans-serif;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-decoration: none;
+  text-align: center;
+  border: none;
+}
+
+.no-audio-btn.primary {
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.no-audio-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+}
+
+.no-audio-btn.secondary {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.85);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.no-audio-btn.secondary:hover {
+  background: rgba(255,255,255,0.18);
+}
+
+.no-audio-btn.tertiary {
+  background: transparent;
+  color: rgba(255,255,255,0.45);
+  font-size: 0.82rem;
+}
+
+.no-audio-btn.tertiary:hover {
+  color: rgba(255,255,255,0.7);
+}
+
+/* Broken chapter in list */
+.chapter-item.broken {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Shortcuts Hint */
 .shortcuts-hint {
   display: flex;

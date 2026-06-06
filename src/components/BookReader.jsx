@@ -9,6 +9,15 @@ function BookReader({ book, onBack }) {
   const [loadError, setLoadError] = useState(false)
   const [audioSources, setAudioSources] = useState([])
   const [resolvedArchiveId, setResolvedArchiveId] = useState(null)
+  const [audioChapters, setAudioChapters] = useState([])      // from /api/audio/resolve
+  const [audioChaptersLoading, setAudioChaptersLoading] = useState(false)
+  const [audioChapterIndex, setAudioChapterIndex] = useState(0)
+  const [audioPlaying, setAudioPlaying] = useState(false)
+  const [audioTime, setAudioTime] = useState(0)
+  const [audioDuration, setAudioDuration] = useState(0)
+  const [audioBuffering, setAudioBuffering] = useState(false)
+  const [audioChapterErrors, setAudioChapterErrors] = useState({})
+  const audioTabRef = useRef(null)
   const [textContent, setTextContent] = useState('')
   const [chapters, setChapters] = useState([])
   const [selectedChapter, setSelectedChapter] = useState(0)
@@ -227,6 +236,39 @@ function BookReader({ book, onBack }) {
     }
   }, [resolvedArchiveId])
   /* eslint-enable react-hooks/exhaustive-deps */
+
+  // Load clean chapter list via /api/audio/resolve whenever the audio tab is opened
+  useEffect(() => {
+    if (activeTab !== 'audio') return
+    if (audioChapters.length > 0 || audioChaptersLoading) return
+
+    const archiveId = resolvedArchiveId
+      || (book.id?.startsWith('archive-') && book.infoLink ? book.infoLink.split('/').pop() : null)
+      || (book.id?.startsWith('librivox-') ? book.id.replace('librivox-', '') : null)
+      || (book.source === 'LibriVox' ? book.archiveId : null)
+
+    const title = book.title || ''
+    if (!archiveId && !title) return
+
+    setAudioChaptersLoading(true)
+    setAudioChapterIndex(0)
+    setAudioPlaying(false)
+    setAudioTime(0)
+    setAudioDuration(0)
+    setAudioChapterErrors({})
+
+    const params = new URLSearchParams()
+    if (archiveId) params.set('archiveId', archiveId)
+    if (title) params.set('title', title)
+
+    fetch(`${API_BASE}/api/audio/resolve?${params}`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(data => {
+        if (Array.isArray(data.chapters)) setAudioChapters(data.chapters)
+      })
+      .catch(() => {})
+      .finally(() => setAudioChaptersLoading(false))
+  }, [activeTab, resolvedArchiveId, book, API_BASE])
 
   useEffect(() => {
     const loadGutenbergText = async () => {
@@ -765,40 +807,117 @@ function BookReader({ book, onBack }) {
         {/* Audio Tab */}
         {activeTab === 'audio' && (
           <div className="audio-section">
-              <div className="audio-container">
+            <div className="audio-container">
               <div className="audio-icon-large">🎧</div>
               <h2>Listen to this Book</h2>
-              <p>Stream or download high-quality audio</p>
 
-              {resolvedArchiveId ? (
-                audioSources && audioSources.length > 0 ? (
-                  <div className="audio-player-list">
-                    <audio controls className="audio-player" preload="none">
-                      {audioSources.map((s, idx) => (
-                        <source key={idx} src={s.url} />
-                      ))}
-                      Your browser does not support the audio element.
-                    </audio>
-                    <div className="audio-files">
-                      {audioSources.map((s, idx) => (
-                        <div className="audio-file" key={idx}>
-                          <a href={s.url} target="_blank" rel="noreferrer" className="audio-btn primary-btn">▶️ Play in new tab</a>
-                          <a href={s.url} download className="audio-btn secondary-btn">⬇️ Download</a>
-                          <div className="audio-file-name">{s.name}</div>
-                        </div>
+              {audioChaptersLoading ? (
+                <div className="audio-resolving">
+                  <div className="spinner"></div>
+                  <p>Searching LibriVox &amp; Internet Archive…</p>
+                </div>
+              ) : audioChapters.length > 0 ? (
+                <div className="audio-chapter-player">
+                  {/* Active chapter player */}
+                  {!audioChapterErrors[audioChapterIndex] && audioChapters[audioChapterIndex]?.audioUrl && (
+                    <div className="audio-now-playing">
+                      <div className="audio-chapter-label">
+                        Chapter {audioChapterIndex + 1} of {audioChapters.length}
+                      </div>
+                      <div className="audio-chapter-name">
+                        {audioChapters[audioChapterIndex].title}
+                      </div>
+                      <audio
+                        ref={audioTabRef}
+                        src={audioChapters[audioChapterIndex].audioUrl}
+                        controls
+                        className="audio-player"
+                        preload="metadata"
+                        onPlay={() => setAudioPlaying(true)}
+                        onPause={() => setAudioPlaying(false)}
+                        onTimeUpdate={(e) => setAudioTime(e.target.currentTime)}
+                        onLoadedMetadata={(e) => { setAudioDuration(e.target.duration); setAudioBuffering(false) }}
+                        onWaiting={() => setAudioBuffering(true)}
+                        onCanPlay={() => setAudioBuffering(false)}
+                        onEnded={() => {
+                          setAudioPlaying(false)
+                          if (audioChapterIndex < audioChapters.length - 1) {
+                            setAudioChapterIndex(i => i + 1)
+                          }
+                        }}
+                        onError={() => {
+                          setAudioChapterErrors(prev => ({ ...prev, [audioChapterIndex]: true }))
+                        }}
+                      />
+                      <div className="audio-chapter-nav">
+                        <button
+                          className="audio-nav-btn"
+                          onClick={() => setAudioChapterIndex(i => Math.max(0, i - 1))}
+                          disabled={audioChapterIndex === 0}
+                        >⏮ Previous</button>
+                        <button
+                          className="audio-nav-btn"
+                          onClick={() => setAudioChapterIndex(i => Math.min(audioChapters.length - 1, i + 1))}
+                          disabled={audioChapterIndex >= audioChapters.length - 1}
+                        >Next ⏭</button>
+                      </div>
+                    </div>
+                  )}
+                  {audioChapterErrors[audioChapterIndex] && (
+                    <div className="audio-chapter-broken">
+                      <p>⚠️ This chapter link is broken.</p>
+                      {audioChapterIndex < audioChapters.length - 1 && (
+                        <button className="audio-nav-btn" onClick={() => setAudioChapterIndex(i => i + 1)}>
+                          Skip to Next →
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Chapter list */}
+                  <div className="audio-chapter-list">
+                    <h4>All Chapters</h4>
+                    <div className="audio-chapter-scroll">
+                      {audioChapters.map((ch, idx) => (
+                        <button
+                          key={ch.id}
+                          className={`audio-chapter-row ${audioChapterIndex === idx ? 'active' : ''} ${audioChapterErrors[idx] ? 'broken' : ''}`}
+                          onClick={() => !audioChapterErrors[idx] && setAudioChapterIndex(idx)}
+                          disabled={audioChapterErrors[idx]}
+                        >
+                          <span className="audio-ch-num">{idx + 1}</span>
+                          <span className="audio-ch-title">{ch.title}</span>
+                          {audioChapterIndex === idx && audioPlaying && (
+                            <span className="audio-ch-playing">▶</span>
+                          )}
+                          {audioChapterErrors[idx] && <span className="audio-ch-broken">⚠️</span>}
+                          {ch.duration > 0 && !audioChapterErrors[idx] && (
+                            <span className="audio-ch-dur">
+                              {Math.floor(ch.duration / 60)}:{String(Math.floor(ch.duration % 60)).padStart(2, '0')}
+                            </span>
+                          )}
+                        </button>
                       ))}
                     </div>
                   </div>
-                ) : (
-                  <div className="no-audio">
-                    <p>Audio not available for this book</p>
-                    <small>Try "View on Internet Archive" for more formats.</small>
-                  </div>
-                )
+                </div>
               ) : (
                 <div className="no-audio">
-                  <p>Audio not available for this book</p>
-                  <small>Audio is available for Internet Archive collections only.</small>
+                  <p>No audiobook chapters found for this title.</p>
+                  <small>
+                    LibriVox and Internet Archive were searched.
+                    {resolvedArchiveId && (
+                      <> Try <a href={`https://archive.org/details/${resolvedArchiveId}`} target="_blank" rel="noreferrer">opening on Internet Archive</a> directly.</>
+                    )}
+                  </small>
+                  <a
+                    href={`https://librivox.org/?q=${encodeURIComponent(book.title || '')}&type=title&sort=alpha&search_form=advanced`}
+                    target="_blank" rel="noreferrer"
+                    className="audio-btn primary-btn"
+                    style={{ marginTop: '1rem', display: 'inline-block' }}
+                  >
+                    🔍 Search LibriVox
+                  </a>
                 </div>
               )}
             </div>
