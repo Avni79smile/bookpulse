@@ -329,7 +329,7 @@ function App() {
         setBooks(shuffle(selectedBooks).slice(0, 7))
         setTopDownloads(shuffle(selectedBooks).slice(0, 5).map((item) => item.title))
 
-        const titleQuery = selectedBooks.map((item) => item.title).join(',')
+        const titleQuery = selectedBooks.map((item) => item.title).join('|')
         const movieResponse = await fetch(`${MOVIE_TRAILERS_API}?titles=${encodeURIComponent(titleQuery)}`)
         const movieData = await movieResponse.json()
         const randomMovies = Array.isArray(movieData?.results)
@@ -446,9 +446,6 @@ function App() {
   }
 
   const openTrailer = (movie) => {
-    if (!getTrailerEmbedUrl(movie.url)) {
-      return
-    }
     setActiveTrailer(movie)
   }
 
@@ -569,23 +566,34 @@ function App() {
           </div>
 
           <div className="movie-row">
-            {filteredMovies.map((movie) => (
-              <button
-                key={movie.id || movie.title}
-                className="movie-card"
-                onClick={() => openTrailer(movie)}
-                type="button"
-              >
-                {getTrailerEmbedUrl(movie.url) && <span className="hd">HD</span>}
-                <img src={movie.image} alt={movie.title} />
-                <div className="play">▶</div>
-                <div className="movie-meta">
-                  <h3>{movie.title}</h3>
-                  <p>({movie.year || 'N/A'})</p>
-                  <span>{getTrailerEmbedUrl(movie.url) ? 'Trailer Available' : 'Coming Soon'}</span>
-                </div>
-              </button>
-            ))}
+            {filteredMovies.map((movie) => {
+              const hasEmbed = Boolean(getTrailerEmbedUrl(movie.url))
+              const conf = movie.confidence ?? null
+              const confLabel = conf === null ? null : conf >= 80 ? 'High Match' : conf >= 50 ? 'Good Match' : 'Possible Match'
+              const confClass = conf === null ? '' : conf >= 80 ? 'conf-high' : conf >= 50 ? 'conf-med' : 'conf-low'
+              return (
+                <button
+                  key={movie.id || movie.title}
+                  className="movie-card"
+                  onClick={() => openTrailer(movie)}
+                  type="button"
+                >
+                  {hasEmbed && <span className="hd">HD</span>}
+                  {confLabel && <span className={`confidence-badge ${confClass}`}>{confLabel}</span>}
+                  <img
+                    src={movie.image}
+                    alt={movie.title}
+                    onError={(e) => { e.currentTarget.src = `https://placehold.co/400x600/1a1c23/f3b327?text=${encodeURIComponent(movie.title)}` }}
+                  />
+                  <div className="play">{hasEmbed ? '▶' : '🔍'}</div>
+                  <div className="movie-meta">
+                    <h3>{movie.title}</h3>
+                    <p>({movie.year || 'N/A'})</p>
+                    <span>{hasEmbed ? 'Trailer Available' : 'Search YouTube'}</span>
+                  </div>
+                </button>
+              )
+            })}
           </div>
           {filteredMovies.length === 0 && (
             <p className="empty-state">No matching movie adaptations for your current filter.</p>
@@ -690,25 +698,78 @@ function App() {
         </div>
       </section>
 
-      {activeTrailer && (
-        <div className="trailer-modal" onClick={() => setActiveTrailer(null)} role="presentation">
-          <div className="trailer-dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="trailer-header">
-              <h3>{activeTrailer.title} Trailer</h3>
-              <button className="close-trailer" onClick={() => setActiveTrailer(null)} type="button">✕</button>
-            </div>
-            <div className="trailer-frame-wrap">
-              <iframe
-                src={getTrailerEmbedUrl(activeTrailer.url)}
-                title={`${activeTrailer.title} trailer`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                referrerPolicy="strict-origin-when-cross-origin"
-                allowFullScreen
-              />
+      {activeTrailer && (() => {
+        const embedUrl = getTrailerEmbedUrl(activeTrailer.url)
+        const conf = activeTrailer.confidence ?? null
+        const confLabel = conf === null ? null : conf >= 80 ? 'High Match' : conf >= 50 ? 'Good Match' : 'Possible Match'
+        const confClass = conf === null ? '' : conf >= 80 ? 'conf-high' : conf >= 50 ? 'conf-med' : 'conf-low'
+        return (
+          <div className="trailer-modal" onClick={() => setActiveTrailer(null)} role="presentation">
+            <div className="trailer-dialog" onClick={(event) => event.stopPropagation()}>
+              <div className="trailer-header">
+                <div className="trailer-header-info">
+                  <h3>{activeTrailer.title}</h3>
+                  <div className="trailer-header-meta">
+                    {activeTrailer.year && activeTrailer.year !== 'N/A' && (
+                      <span className="trailer-year">{activeTrailer.year}</span>
+                    )}
+                    {activeTrailer.rating && (
+                      <span className="trailer-rating">⭐ {activeTrailer.rating}</span>
+                    )}
+                    {confLabel && (
+                      <span className={`confidence-badge ${confClass}`}>{confLabel}</span>
+                    )}
+                  </div>
+                </div>
+                <button className="close-trailer" onClick={() => setActiveTrailer(null)} type="button" aria-label="Close">✕</button>
+              </div>
+
+              {embedUrl ? (
+                <div className="trailer-frame-wrap">
+                  <iframe
+                    src={embedUrl}
+                    title={`${activeTrailer.title} trailer`}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
+                  />
+                </div>
+              ) : (
+                <div className="trailer-no-embed">
+                  <img
+                    src={activeTrailer.image}
+                    alt={activeTrailer.title}
+                    className="trailer-poster-img"
+                    onError={(e) => { e.currentTarget.src = `https://placehold.co/800x450/1a1c23/f3b327?text=${encodeURIComponent(activeTrailer.title)}` }}
+                  />
+                  <div className="trailer-no-embed-overlay">
+                    <p className="trailer-no-embed-msg">No embedded trailer available for this title.</p>
+                    <a
+                      href={activeTrailer.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="trailer-yt-btn"
+                    >
+                      🔍 Search on YouTube
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {(activeTrailer.overview || activeTrailer.sourceBookTitle) && (
+                <div className="trailer-footer">
+                  {activeTrailer.sourceBookTitle && (
+                    <p className="trailer-source-book">📖 Based on: <em>{activeTrailer.sourceBookTitle}</em></p>
+                  )}
+                  {activeTrailer.overview && (
+                    <p className="trailer-overview">{activeTrailer.overview}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

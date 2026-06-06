@@ -293,19 +293,47 @@ const normalizeTitleForSearch = (value) => String(value || '')
   .replace(/\s+/g, ' ')
   .trim()
 
+const MATCH_STOP_WORDS = new Set([
+  'the', 'a', 'an', 'of', 'and', 'or', 'in', 'on', 'at', 'to',
+  'for', 'by', 'with', 'from', 'as', 'is', 'was', 'are', 'its',
+])
+
 const scoreMovieMatch = (bookTitle, movie) => {
-  const source = normalizeTitleForSearch(bookTitle).toLowerCase()
-  const candidate = normalizeTitleForSearch(movie?.title || '').toLowerCase()
+  const norm = (val) => normalizeTitleForSearch(val).toLowerCase()
+  const source = norm(bookTitle)
+  const candidate = norm(movie?.title || '')
   if (!source || !candidate) return 0
+
   if (source === candidate) return 100
-  if (candidate.includes(source)) return 80
-  if (source.includes(candidate)) return 60
-  const sourceWords = new Set(source.split(' ').filter(Boolean))
-  const candidateWords = new Set(candidate.split(' ').filter(Boolean))
+
+  // Strip subtitles (text after : or ;) for a tighter core comparison
+  const sourceCore = source.split(/\s*[:;]\s*/)[0].trim()
+  const candidateCore = candidate.split(/\s*[:;]\s*/)[0].trim()
+
+  if (sourceCore && candidateCore) {
+    if (sourceCore === candidateCore) return 95
+    if (candidate === sourceCore || source === candidateCore) return 88
+    if (candidate.includes(sourceCore) || source.includes(candidateCore)) return 78
+    if (candidateCore.includes(sourceCore) || sourceCore.includes(candidateCore)) return 72
+  }
+
+  // Meaningful-word overlap (skip stop words and very short tokens)
+  const toWords = (str) => str.split(/\s+/).filter(w => w.length > 2 && !MATCH_STOP_WORDS.has(w))
+  const sourceWords = toWords(source)
+  const candidateWordSet = new Set(toWords(candidate))
+
+  if (sourceWords.length === 0 || candidateWordSet.size === 0) return 0
+
   let overlap = 0
-  for (const word of sourceWords) { if (candidateWords.has(word)) overlap += 1 }
-  return overlap
+  for (const word of sourceWords) {
+    if (candidateWordSet.has(word)) overlap++
+  }
+
+  const ratio = overlap / Math.max(sourceWords.length, candidateWordSet.size)
+  return Math.round(ratio * 65) // cap at 65 for word-level matches
 }
+
+const CONFIDENCE_MIN = 35 // reject matches below this threshold
 
 process.on('unhandledRejection', (reason) => console.error('Unhandled rejection:', reason))
 process.on('uncaughtException', (error) => console.error('Uncaught exception:', error))
@@ -748,8 +776,9 @@ app.get('/api/openlibrary/search', async (req, res) => {
 app.get('/api/movies/trailers', async (req, res) => {
   const ROUTE = 'movies/trailers'
   try {
-    const titles = typeof req.query.titles === 'string' && req.query.titles.trim()
-      ? req.query.titles.split(',').map(item => item.trim()).filter(Boolean)
+    const rawTitles = req.query.titles
+    const titles = typeof rawTitles === 'string' && rawTitles.trim()
+      ? rawTitles.split('|').map(item => item.trim()).filter(Boolean)
       : DEFAULT_ADAPTATION_TITLES
 
     const selectedTitles = titles.slice(0, 12)
@@ -763,7 +792,8 @@ app.get('/api/movies/trailers', async (req, res) => {
 
     const results = await Promise.all(selectedTitles.map(async (title) => {
       try {
-        const queryTitle = normalizeTitleForSearch(title).split(':')[0].trim() || title
+        // Use core title (before : or ;) for a tighter TMDB search query
+        const queryTitle = normalizeTitleForSearch(title).split(/[:;]/)[0].trim() || title
         const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(queryTitle)}&include_adult=false`
 
         let searchData
@@ -779,24 +809,41 @@ app.get('/api/movies/trailers', async (req, res) => {
           return null
         }
 
-        const movie = Array.isArray(searchData?.results)
-          ? [...searchData.results].filter(item => item?.title).sort((a, b) => scoreMovieMatch(title, b) - scoreMovieMatch(title, a))[0]
-          : null
+        // Score every candidate and pick the best
+        const scored = Array.isArray(searchData?.results)
+          ? searchData.results
+              .filter(item => item?.title)
+              .map(item => ({ item, score: scoreMovieMatch(title, item) }))
+              .sort((a, b) => b.score - a.score)
+          : []
 
-        if (!movie?.id) {
-          apiLog.warn(ROUTE, `No TMDB match for "${title}"`)
+        const best = scored[0]
+        const confidence = best?.score ?? 0
+
+        // Reject low-confidence matches to prevent incorrect trailers
+        if (!best?.item?.id || confidence < CONFIDENCE_MIN) {
+          apiLog.warn(ROUTE, `Low confidence (${confidence}) for "${title}"${best ? ` → "${best.item.title}"` : ''}, skipping`)
           return null
         }
 
+        const movie = best.item
+        apiLog.info(ROUTE, `Matched "${title}" → "${movie.title}" (confidence ${confidence})`)
+
+        // Fetch trailer videos from TMDB
         let trailer = null
         try {
           const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${TMDB_API_KEY}`
           const videosResponse = await withTimeout(videosUrl, 12000, ROUTE)
           if (videosResponse.ok) {
             const videosData = await videosResponse.json()
-            trailer = Array.isArray(videosData?.results)
-              ? videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') || videosData.results.find(v => v.site === 'YouTube')
-              : null
+            if (Array.isArray(videosData?.results)) {
+              // Prefer official trailers, then teasers, then any YouTube clip
+              trailer =
+                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer' && v.official) ||
+                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') ||
+                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Teaser') ||
+                videosData.results.find(v => v.site === 'YouTube')
+            }
           } else {
             apiLog.warn(ROUTE, `TMDB videos ${videosResponse.status} for movie ${movie.id}`)
           }
@@ -805,13 +852,17 @@ app.get('/api/movies/trailers', async (req, res) => {
         }
 
         const releaseYear = typeof movie.release_date === 'string' ? movie.release_date.slice(0, 4) : ''
-        const fallbackPoster = movie.backdrop_path
-          ? `https://image.tmdb.org/t/p/w780${movie.backdrop_path}`
-          : movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-          : trailer?.key ? `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`
-          : 'https://via.placeholder.com/640x360?text=Classic+Film'
 
-        let omdbOverview = '', omdbPoster = ''
+        // Build poster fallback chain: OMDB → TMDB poster → TMDB backdrop → YouTube thumbnail → placeholder
+        const tmdbPoster = movie.poster_path
+          ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
+          : null
+        const tmdbBackdrop = movie.backdrop_path
+          ? `https://image.tmdb.org/t/p/w780${movie.backdrop_path}`
+          : null
+        const ytThumb = trailer?.key ? `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg` : null
+
+        let omdbOverview = '', omdbPoster = '', omdbRating = ''
         if (OMDB_KEY) {
           try {
             const omdbUrl = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(movie.title)}${releaseYear ? `&y=${releaseYear}` : ''}`
@@ -819,8 +870,9 @@ app.get('/api/movies/trailers', async (req, res) => {
             if (omdbResponse.ok) {
               const omdbData = await omdbResponse.json()
               if (omdbData?.Response === 'True') {
-                omdbOverview = typeof omdbData.Plot === 'string' ? omdbData.Plot : ''
+                omdbOverview = typeof omdbData.Plot === 'string' && omdbData.Plot !== 'N/A' ? omdbData.Plot : ''
                 omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
+                omdbRating = typeof omdbData.imdbRating === 'string' && omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : ''
               } else {
                 apiLog.warn(ROUTE, `OMDB no result for "${movie.title}"`, { reason: omdbData?.Error })
               }
@@ -832,14 +884,26 @@ app.get('/api/movies/trailers', async (req, res) => {
           }
         }
 
+        const image = omdbPoster || tmdbPoster || ytThumb || tmdbBackdrop || 'https://placehold.co/400x600/1a1c23/f3b327?text=Classic+Film'
+
+        // When no embeddable trailer found, fall back to a YouTube search URL
+        const ytSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${releaseYear} official trailer`)}`
+        const trailerUrl = trailer?.key
+          ? `https://www.youtube.com/watch?v=${trailer.key}`
+          : ytSearchUrl
+
         return {
           id: `tmdb-${movie.id}`,
           title: movie.title,
-          image: omdbPoster || fallbackPoster,
-          url: trailer?.key ? `https://www.youtube.com/watch?v=${trailer.key}` : `https://www.themoviedb.org/movie/${movie.id}`,
+          image,
+          url: trailerUrl,
+          hasTrailer: Boolean(trailer?.key),
           year: releaseYear || 'N/A',
-          overview: omdbOverview || movie.overview || 'Classic public-domain adaptation.',
+          overview: omdbOverview || movie.overview || 'A classic public-domain adaptation.',
+          rating: omdbRating,
+          confidence,
           sourceBookTitle: title,
+          tmdbId: movie.id,
         }
       } catch (innerErr) {
         apiLog.error(ROUTE, `Unhandled error for title "${title}"`, innerErr)

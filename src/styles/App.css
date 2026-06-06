@@ -695,11 +695,48 @@
   box-shadow: 0 10px 22px rgba(16, 18, 24, 0.08);
 }
 
+/* ── Confidence badges ─────────────────────────────────────────────────── */
+.confidence-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.conf-high {
+  background: rgba(34, 197, 94, 0.92);
+  color: #fff;
+}
+
+.conf-med {
+  background: rgba(234, 179, 8, 0.92);
+  color: #111;
+}
+
+.conf-low {
+  background: rgba(239, 68, 68, 0.88);
+  color: #fff;
+}
+
+/* Inline badge variant (used inside modal header) */
+.trailer-header-meta .confidence-badge {
+  position: static;
+  display: inline-block;
+}
+
+/* ── Trailer modal ─────────────────────────────────────────────────────── */
 .trailer-modal {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.8);
-  backdrop-filter: blur(10px);
+  background: rgba(8, 10, 14, 0.88);
+  backdrop-filter: blur(12px);
   display: grid;
   place-items: center;
   z-index: 1000;
@@ -711,24 +748,62 @@
   background: #0f1117;
   border-radius: 26px;
   overflow: hidden;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 32px 72px rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  max-height: 90vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.trailer-dialog::-webkit-scrollbar {
+  display: none;
 }
 
 .trailer-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  padding: 16px 20px;
+  padding: 18px 22px;
   background: rgba(255, 255, 255, 0.04);
-  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.trailer-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 .trailer-header h3 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   color: #fff;
+  font-family: 'Playfair Display', serif;
+  line-height: 1.2;
+}
+
+.trailer-header-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trailer-year,
+.trailer-rating {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.trailer-rating {
+  color: #f7d06d;
+  background: rgba(247, 208, 109, 0.12);
 }
 
 .close-trailer {
@@ -737,13 +812,17 @@
   color: #fff;
   width: 38px;
   height: 38px;
+  flex-shrink: 0;
   border-radius: 12px;
   font-size: 1rem;
   font-weight: 800;
+  display: grid;
+  place-items: center;
+  transition: background 0.18s;
 }
 
 .close-trailer:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .trailer-frame-wrap {
@@ -755,6 +834,94 @@
   width: 100%;
   height: 100%;
   border: none;
+  display: block;
+}
+
+/* No-embed state */
+.trailer-no-embed {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #0a0c12;
+  overflow: hidden;
+}
+
+.trailer-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.45;
+  display: block;
+}
+
+.trailer-no-embed-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+}
+
+.trailer-no-embed-msg {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.98rem;
+  margin: 0;
+  text-align: center;
+}
+
+.trailer-yt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 26px;
+  background: linear-gradient(135deg, #f7d06d 0%, #f3b327 100%);
+  color: #111;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  text-decoration: none;
+  box-shadow: 0 10px 24px rgba(243, 179, 39, 0.3);
+  transition: transform 0.18s, filter 0.18s;
+}
+
+.trailer-yt-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+
+/* Footer: source book + overview */
+.trailer-footer {
+  padding: 16px 22px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trailer-source-book {
+  margin: 0;
+  font-size: 0.84rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.trailer-source-book em {
+  color: #f7d06d;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.trailer-overview {
+  margin: 0;
+  font-size: 0.92rem;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 @media (max-width: 1180px) {
