@@ -14,8 +14,8 @@ const { Pool } = pg
 
 const app = express()
 const PORT = process.env.PORT || 5175
-const TMDB_API_KEY = process.env.TMDB_API_KEY || '7172c9a75fb01a4fa514de0d57a2f4c7'
-const OMDB_KEY = process.env.OMDB_KEY || '8f081069'
+const TMDB_API_KEY = process.env.TMDB_API_KEY
+const OMDB_KEY = process.env.OMDB_KEY
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
 
 app.use(express.json())

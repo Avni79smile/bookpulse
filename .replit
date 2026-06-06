@@ -42,3 +42,9 @@ externalPort = 3000
 deploymentTarget = "autoscale"
 run = ["node", "server/index.js"]
 build = ["npm", "run", "build"]
+
+[userenv]
+
+[userenv.shared]
+TMDB_API_KEY = "7172c9a75fb01a4fa514de0d57a2f4c7"
+OMDB_KEY = "8f081069"
