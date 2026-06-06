@@ -16,6 +16,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "pg": "^8.21.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-pageflip": "^2.0.3"

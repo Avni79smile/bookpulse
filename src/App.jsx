@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './styles/App.css'
 import BookReader from './components/BookReader'
+import { getBookmarks } from './utils/userLib'
 
 const RANDOM_SEARCH_TERMS = [
   'classic literature',
@@ -170,7 +171,7 @@ const navItems = [
   { label: 'Browse Books', sectionId: 'all-books' },
   { label: 'Books into Movies', sectionId: 'movies' },
   { label: 'Movie Trailers', sectionId: 'movies' },
-  { label: 'Categories', sectionId: 'collection' },
+  { label: 'My Library', sectionId: 'my-library' },
   { label: 'About', sectionId: 'why' },
 ]
 
@@ -279,6 +280,8 @@ function App() {
   const [activeTrailer, setActiveTrailer] = useState(null)
   const [selectedBook, setSelectedBook] = useState(null)
   const [visibleBookCount, setVisibleBookCount] = useState(24)
+  const [myBookmarks, setMyBookmarks] = useState([])
+  const [bookmarksLoaded, setBookmarksLoaded] = useState(false)
 
   useEffect(() => {
     const loadHomeData = async () => {
@@ -453,8 +456,19 @@ function App() {
     setSelectedBook(book)
   }
 
+  const loadMyBookmarks = useCallback(async () => {
+    const bms = await getBookmarks()
+    setMyBookmarks(bms)
+    setBookmarksLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    loadMyBookmarks()
+  }, [loadMyBookmarks])
+
   const handleBackToLibrary = () => {
     setSelectedBook(null)
+    loadMyBookmarks()
   }
 
   if (selectedBook) {
@@ -616,6 +630,52 @@ function App() {
           <button className="load-more-books" onClick={() => setVisibleBookCount((count) => count + 24)} type="button">
             Load More Free Books
           </button>
+        )}
+      </section>
+
+      <section className="my-library" id="my-library">
+        <div className="all-books-head">
+          <h2>🔖 My Library</h2>
+          <span>{myBookmarks.length} saved book{myBookmarks.length !== 1 ? 's' : ''}</span>
+        </div>
+        {!bookmarksLoaded ? (
+          <p className="empty-state">Loading your saved books...</p>
+        ) : myBookmarks.length === 0 ? (
+          <div className="my-library-empty">
+            <p>You haven't saved any books yet.</p>
+            <p>Open a book and click <strong>🔖 Save</strong> in the reader to add it here.</p>
+          </div>
+        ) : (
+          <div className="all-books-grid">
+            {myBookmarks.map((bm) => {
+              const book = {
+                id: bm.book_id,
+                title: bm.title,
+                author: bm.author,
+                authors: bm.author,
+                image: bm.image || `https://www.gutenberg.org/cache/epub/${bm.book_id.replace('gutenberg-', '')}/pg${bm.book_id.replace('gutenberg-', '')}.cover.medium.jpg`,
+                source: bm.source || 'Project Gutenberg',
+                isFullAvailable: true,
+                hasText: true,
+                hasPreview: true,
+                hasAudio: false,
+                tags: ['full'],
+                textLink: bm.book_id.startsWith('gutenberg-')
+                  ? `https://www.gutenberg.org/files/${bm.book_id.replace('gutenberg-', '')}/${bm.book_id.replace('gutenberg-', '')}-0.txt`
+                  : '',
+                previewLink: '',
+                infoLink: '',
+              }
+              return (
+                <article className="all-book-card" key={bm.book_id}>
+                  <img src={book.image} alt={book.title} />
+                  <h3>{book.title}</h3>
+                  <p>{book.author}</p>
+                  <button onClick={() => handleReadBook(book)} type="button">Read Now</button>
+                </article>
+              )
+            })}
+          </div>
         )}
       </section>
 

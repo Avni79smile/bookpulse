@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import HTMLFlipBook from 'react-pageflip'
 import '../styles/BookReader.css'
+import { addBookmark, removeBookmark, getBookmarks, isBookmarked, saveProgress, getProgress } from '../utils/userLib'
 
 function BookReader({ book, onBack }) {
   const [activeTab, setActiveTab] = useState('read')
@@ -18,10 +19,54 @@ function BookReader({ book, onBack }) {
   const [googleViewerError, setGoogleViewerError] = useState(false)
   const [archiveAccessRestricted, setArchiveAccessRestricted] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
+  const [bookmarked, setBookmarked] = useState(false)
+  const [bookmarkSaving, setBookmarkSaving] = useState(false)
 
   const flipBookRef = useRef(null)
 
   const API_BASE = import.meta.env.VITE_API_BASE || ''
+
+  // Load bookmark status on mount
+  useEffect(() => {
+    const checkBookmark = async () => {
+      const bms = await getBookmarks()
+      setBookmarked(isBookmarked(bms, book.id))
+    }
+    checkBookmark()
+  }, [book.id])
+
+  // Load saved reading progress
+  useEffect(() => {
+    const loadProgress = async () => {
+      if (!book.id?.startsWith('gutenberg-')) return
+      const prog = await getProgress(book.id)
+      if (prog && prog.chapter != null) {
+        setSelectedChapter(prog.chapter)
+      }
+    }
+    loadProgress()
+  }, [book.id])
+
+  // Save progress when chapter changes (debounced via timeout)
+  useEffect(() => {
+    if (!book.id?.startsWith('gutenberg-')) return
+    const timer = setTimeout(() => {
+      saveProgress(book.id, book.title, selectedChapter, currentPage)
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [book.id, book.title, selectedChapter, currentPage])
+
+  const toggleBookmark = useCallback(async () => {
+    setBookmarkSaving(true)
+    if (bookmarked) {
+      await removeBookmark(book.id)
+      setBookmarked(false)
+    } else {
+      await addBookmark(book)
+      setBookmarked(true)
+    }
+    setBookmarkSaving(false)
+  }, [book, bookmarked])
 
   const fetchWithTimeout = async (url, timeout = 12000) => {
     const controller = new AbortController()
@@ -436,6 +481,14 @@ function BookReader({ book, onBack }) {
           </div>
         </div>
         <div className="header-right">
+          <button
+            className={`bookmark-btn ${bookmarked ? 'bookmarked' : ''}`}
+            onClick={toggleBookmark}
+            disabled={bookmarkSaving}
+            title={bookmarked ? 'Remove bookmark' : 'Save to My Library'}
+          >
+            {bookmarkSaving ? '...' : bookmarked ? '🔖 Saved' : '🔖 Save'}
+          </button>
           <span className="source-label">Source: {book.source}</span>
         </div>
       </header>

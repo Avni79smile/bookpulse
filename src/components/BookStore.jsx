@@ -126,7 +126,6 @@ function BookStore({ onReadBook }) {
         if (archiveDocs.length > 0) {
           const archiveBooks = archiveDocs
             .filter(item => item.title)
-            .filter(item => containsNovelKeyword(`${item.title} ${item.description || ''}`))
             .map((item) => {
               const formats = item.format || ''
               const formatStr = Array.isArray(formats) ? formats.join(' ').toLowerCase() : String(formats).toLowerCase()
@@ -178,7 +177,7 @@ function BookStore({ onReadBook }) {
 
         if (Array.isArray(librivoxData.books)) {
           const librivoxBooks = librivoxData.books
-            .filter((item) => containsNovelKeyword(`${item.title || ''} ${item.description || ''}`))
+            .filter((item) => item.title)
             .map((item) => {
             const authors = Array.isArray(item.authors)
               ? item.authors.map(a => `${a.first_name || ''} ${a.last_name || ''}`.trim()).filter(Boolean).join(', ')

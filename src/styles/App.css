@@ -516,6 +516,24 @@
   min-width: 220px;
 }
 
+.my-library {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 20px 8px;
+}
+
+.my-library-empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: #6b6b6b;
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+.my-library-empty p {
+  margin: 0 0 6px;
+}
+
 .why h2 {
   font-family: 'Playfair Display', serif;
   font-size: 52px;
