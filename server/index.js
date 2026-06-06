@@ -739,6 +739,306 @@ app.get('/api/movies/trailers', async (req, res) => {
   }
 })
 
+// ─── Unified Search ────────────────────────────────────────────────────────
+
+const normalizeTitle = (title) =>
+  String(title || '')
+    .toLowerCase()
+    .replace(/[''`]/g, '')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\b(the|a|an)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const pickTextLink = (formats = {}) => {
+  const entries = Object.entries(formats).filter(([, url]) => typeof url === 'string' && url)
+  const isCompressed = (mime, url) => /zip|gzip|x-bzip2|x-rar/i.test(mime) || /\.(zip|gz|bz2|rar)(\?|$)/i.test(url)
+  const isPlain = (mime) => /text\/plain/i.test(mime)
+  const isHtml = (mime) => /text\/html/i.test(mime)
+  const candidates = entries
+    .map(([mime, url]) => ({ mime: mime.toLowerCase(), url: url.replace(/^http:\/\//i, 'https://') }))
+    .filter(({ mime, url }) => !isCompressed(mime, url))
+  return (
+    candidates.find(({ mime }) => isPlain(mime) && /utf-8/i.test(mime))?.url ||
+    candidates.find(({ mime }) => isPlain(mime))?.url ||
+    candidates.find(({ mime }) => isHtml(mime) && /utf-8/i.test(mime))?.url ||
+    candidates.find(({ mime }) => isHtml(mime))?.url ||
+    null
+  )
+}
+
+const scoreBook = (book) => {
+  let s = 0
+  if (book.hasText && book.textLink) s += 40
+  else if (book.hasText) s += 20
+  if (book.hasAudio) s += 25
+  if (book.hasCover) s += 15
+  if (book.source === 'Project Gutenberg') s += 10
+  if (book.source === 'Open Library') s += 5
+  return s
+}
+
+app.get('/api/search/unified', async (req, res) => {
+  const ROUTE = 'search/unified'
+  const query = (req.query.query || 'fiction').trim()
+  const page = parseInt(req.query.page, 10) || 1
+  const cacheKey = `unified:${query}:${page}`
+
+  const cached = cache.get(cacheKey)
+  if (cached) {
+    apiLog.info(ROUTE, 'Cache hit', { query, page })
+    return res.json(cached)
+  }
+
+  const sourceStatus = {}
+
+  // ── 1. Gutenberg — local catalog, instant ─────────────────────────────────
+  let gutenbergBooks = []
+  try {
+    const data = searchCatalog(query, page)
+    gutenbergBooks = (data.results || []).map(item => {
+      const textLink = pickTextLink(item.formats || {})
+      const cover = item.formats?.['image/jpeg'] || null
+      const validCover = cover && !cover.includes('placeholder') ? cover : null
+      return {
+        id: `gutenberg-${item.id}`,
+        title: item.title,
+        authors: item.authors?.map(a => a.name).join(', ') || 'Unknown Author',
+        image: validCover,
+        description: 'A classic work from Project Gutenberg\'s public domain collection.',
+        source: 'Project Gutenberg',
+        hasText: Boolean(textLink),
+        hasAudio: false,
+        hasCover: Boolean(validCover),
+        textLink: textLink || null,
+        previewLink: `https://www.gutenberg.org/ebooks/${item.id}`,
+        infoLink: `https://www.gutenberg.org/ebooks/${item.id}`,
+        publishedDate: 'Classic',
+        pageCount: 0,
+        isFullAvailable: Boolean(textLink),
+        hasPreview: true,
+        tags: ['classic', 'full'],
+      }
+    }).filter(b => b.hasText)
+    sourceStatus.gutenberg = { ok: true, count: gutenbergBooks.length }
+    apiLog.info(ROUTE, `Gutenberg: ${gutenbergBooks.length}`, { query })
+  } catch (err) {
+    apiLog.error(ROUTE, 'Gutenberg catalog error', err)
+    sourceStatus.gutenberg = { ok: false, error: err.message }
+  }
+
+  // ── 2–5. External sources — all in parallel ────────────────────────────────
+  const [iaResult, librivoxResult, googleResult, olResult] = await Promise.allSettled([
+    // Internet Archive
+    (async () => {
+      const q = query
+        ? `(title:(${query}) OR creator:(${query})) AND collection:(librivox OR audio_bookspoetry) AND access-restricted:false`
+        : 'collection:librivoxaudio AND mediatype:audio'
+      const url = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl=identifier,title,creator,description,date,mediatype,format&output=json&rows=30&page=${page}`
+      const r = await withTimeout(url, 12000, ROUTE)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    })(),
+    // LibriVox (via IA)
+    (async () => {
+      const q = query
+        ? `(title:(${query}) OR creator:(${query})) AND collection:librivoxaudio`
+        : 'collection:librivoxaudio AND mediatype:audio'
+      const offset = (page - 1) * 30
+      const url = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl=identifier,title,creator,description,date,downloads&output=json&rows=30&start=${offset}&sort[]=downloads+desc`
+      const r = await withTimeout(url, 12000, ROUTE)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    })(),
+    // Google Books (free ebooks only)
+    (async () => {
+      const startIndex = (page - 1) * 20
+      const apiKey = process.env.GOOGLE_BOOKS_KEY
+      const keyPart = apiKey ? `&key=${apiKey}` : ''
+      const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=20&startIndex=${startIndex}&printType=books&filter=free-ebooks${keyPart}`
+      const r = await withTimeout(url, 10000, ROUTE)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    })(),
+    // Open Library (public scan only)
+    (async () => {
+      const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&has_fulltext=true&public_scan_b=true&limit=30&page=${page}`
+      const r = await withTimeout(url, 12000, ROUTE)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    })(),
+  ])
+
+  // Process IA
+  let iaBooks = []
+  if (iaResult.status === 'fulfilled') {
+    const docs = iaResult.value?.response?.docs || []
+    iaBooks = docs.filter(item => item.title).map(item => ({
+      id: `archive-${item.identifier}`,
+      title: item.title,
+      authors: Array.isArray(item.creator) ? item.creator.join(', ') : (item.creator || 'Unknown Author'),
+      image: `https://archive.org/services/img/${item.identifier}`,
+      description: Array.isArray(item.description) ? item.description[0] : (item.description || 'Audiobook from Internet Archive.'),
+      source: 'Internet Archive',
+      hasText: false, hasAudio: true, hasCover: true,
+      textLink: null,
+      previewLink: `https://archive.org/embed/${item.identifier}`,
+      infoLink: `https://archive.org/details/${item.identifier}`,
+      publishedDate: item.date || 'Unknown',
+      pageCount: 0, isFullAvailable: true, hasPreview: true,
+      tags: ['full', 'audio'],
+      archiveId: item.identifier,
+    }))
+    sourceStatus.internetArchive = { ok: true, count: iaBooks.length }
+    apiLog.info(ROUTE, `Internet Archive: ${iaBooks.length}`, { query })
+  } else {
+    apiLog.error(ROUTE, 'Internet Archive failed', iaResult.reason)
+    sourceStatus.internetArchive = { ok: false, error: iaResult.reason?.message }
+  }
+
+  // Process LibriVox
+  let librivoxBooks = []
+  if (librivoxResult.status === 'fulfilled') {
+    const docs = librivoxResult.value?.response?.docs || []
+    librivoxBooks = docs.filter(item => item.title).map(item => ({
+      id: `librivox-${item.identifier}`,
+      title: item.title,
+      authors: Array.isArray(item.creator) ? item.creator[0] : (item.creator || 'Unknown Author'),
+      image: `https://archive.org/services/img/${item.identifier}`,
+      description: Array.isArray(item.description) ? item.description[0] : (item.description || 'Audiobook from LibriVox.'),
+      source: 'LibriVox',
+      hasText: false, hasAudio: true, hasCover: true,
+      textLink: null,
+      previewLink: `https://archive.org/embed/${item.identifier}`,
+      infoLink: `https://archive.org/details/${item.identifier}`,
+      publishedDate: item.date ? String(item.date).substring(0, 4) : 'Unknown',
+      pageCount: 0, isFullAvailable: true, hasPreview: true,
+      tags: ['full', 'audio'],
+      archiveId: item.identifier,
+    }))
+    sourceStatus.librivox = { ok: true, count: librivoxBooks.length }
+    apiLog.info(ROUTE, `LibriVox: ${librivoxBooks.length}`, { query })
+  } else {
+    apiLog.error(ROUTE, 'LibriVox failed', librivoxResult.reason)
+    sourceStatus.librivox = { ok: false, error: librivoxResult.reason?.message }
+  }
+
+  // Process Google Books
+  let googleBooks = []
+  if (googleResult.status === 'fulfilled') {
+    const items = googleResult.value?.items || []
+    googleBooks = items
+      .filter(item => {
+        if (!item.volumeInfo?.title) return false
+        const a = item.accessInfo || {}
+        return a.publicDomain === true || a.viewability === 'ALL_PAGES' ||
+               a.accessViewStatus === 'FULL_PUBLIC_DOMAIN' ||
+               a.epub?.isAvailable || a.pdf?.isAvailable
+      })
+      .map(item => {
+        const imgLinks = item.volumeInfo.imageLinks
+        const rawImg = imgLinks?.thumbnail || imgLinks?.smallThumbnail || null
+        const image = rawImg ? rawImg.replace(/^http:\/\//i, 'https://') : null
+        return {
+          id: `google-${item.id}`,
+          title: item.volumeInfo.title,
+          authors: item.volumeInfo.authors?.join(', ') || 'Unknown Author',
+          image,
+          description: typeof item.volumeInfo.description === 'string' ? item.volumeInfo.description : '',
+          source: 'Google Books',
+          hasText: true, hasAudio: false,
+          hasCover: Boolean(image),
+          textLink: null,
+          previewLink: (item.accessInfo?.webReaderLink || item.volumeInfo.previewLink || '').replace(/^http:\/\//i, 'https://'),
+          infoLink: (item.volumeInfo.infoLink || '').replace(/^http:\/\//i, 'https://'),
+          publishedDate: item.volumeInfo.publishedDate || 'Unknown',
+          pageCount: item.volumeInfo.pageCount || 0,
+          isFullAvailable: true, hasPreview: true,
+          tags: ['full', 'free'],
+          googleId: item.id,
+        }
+      })
+    sourceStatus.googleBooks = { ok: true, count: googleBooks.length }
+    apiLog.info(ROUTE, `Google Books: ${googleBooks.length}`, { query })
+  } else {
+    apiLog.error(ROUTE, 'Google Books failed', googleResult.reason)
+    sourceStatus.googleBooks = { ok: false, error: googleResult.reason?.message }
+  }
+
+  // Process Open Library
+  let olBooks = []
+  if (olResult.status === 'fulfilled') {
+    const docs = olResult.value?.docs || []
+    olBooks = docs.filter(item => item.has_fulltext && item.public_scan_b && item.title).map(item => {
+      const image = item.cover_i ? `https://covers.openlibrary.org/b/id/${item.cover_i}-M.jpg` : null
+      return {
+        id: `openlibrary-${String(item.key || item.title).replace(/[^a-z0-9]/gi, '_')}`,
+        title: item.title,
+        authors: item.author_name?.join(', ') || 'Unknown Author',
+        image,
+        description: `Published ${item.first_publish_year || 'unknown year'}. Available in Open Library.`,
+        source: 'Open Library',
+        hasText: true, hasAudio: false,
+        hasCover: Boolean(item.cover_i),
+        textLink: null,
+        previewLink: `https://openlibrary.org${item.key}`,
+        infoLink: `https://openlibrary.org${item.key}`,
+        publishedDate: item.first_publish_year || 'Unknown',
+        pageCount: item.number_of_pages_median || 0,
+        isFullAvailable: true, hasPreview: true,
+        tags: ['full', 'public-domain'],
+      }
+    })
+    sourceStatus.openLibrary = { ok: true, count: olBooks.length }
+    apiLog.info(ROUTE, `Open Library: ${olBooks.length}`, { query })
+  } else {
+    apiLog.error(ROUTE, 'Open Library failed', olResult.reason)
+    sourceStatus.openLibrary = { ok: false, error: olResult.reason?.message }
+  }
+
+  // ── Merge, deduplicate, rank ───────────────────────────────────────────────
+  // Priority order: Gutenberg first (best text quality), then others
+  const allBooks = [...gutenbergBooks, ...googleBooks, ...olBooks, ...iaBooks, ...librivoxBooks]
+
+  const seen = new Map()
+  for (const book of allBooks) {
+    const key = normalizeTitle(book.title)
+    if (!key) continue
+    if (!seen.has(key)) {
+      seen.set(key, { ...book })
+    } else {
+      const existing = seen.get(key)
+      const incoming = { ...book }
+      // Enrich existing with audio availability from duplicates
+      if (incoming.hasAudio && !existing.hasAudio) {
+        existing.hasAudio = true
+        existing.archiveId = existing.archiveId || incoming.archiveId
+        existing.tags = [...new Set([...(existing.tags || []), 'audio'])]
+      }
+      // Replace if incoming scores higher
+      if (scoreBook(incoming) > scoreBook(existing)) {
+        // Preserve audio enrichment
+        if (existing.hasAudio) { incoming.hasAudio = true; incoming.archiveId = incoming.archiveId || existing.archiveId }
+        seen.set(key, incoming)
+      }
+    }
+  }
+
+  const uniqueBooks = Array.from(seen.values())
+  uniqueBooks.sort((a, b) => {
+    const diff = scoreBook(b) - scoreBook(a)
+    if (diff !== 0) return diff
+    if (b.hasCover !== a.hasCover) return b.hasCover ? 1 : -1
+    return 0
+  })
+
+  apiLog.info(ROUTE, `Result: ${uniqueBooks.length} unique from ${allBooks.length} total`, { query, page })
+
+  const result = { query, page, total: uniqueBooks.length, books: uniqueBooks, sourceStatus }
+  if (uniqueBooks.length > 0) cache.set(cacheKey, result, CACHE_TTL.IA_SEARCH)
+  res.json(result)
+})
+
 // ─── Database Endpoints ────────────────────────────────────────────────────
 
 const loadBookmarksForDevice = async (deviceId) => {
