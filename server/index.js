@@ -23,8 +23,6 @@ const IS_PROD = existsSync(path.join(DIST_PATH, 'index.html'))
 
 const app = express()
 const PORT = process.env.PORT || 5175
-const TMDB_API_KEY = process.env.TMDB_API_KEY
-const OMDB_KEY = process.env.OMDB_KEY
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
 
 // In production, serve the built React app static files
@@ -850,28 +848,37 @@ app.get('/api/movies/trailers', async (req, res) => {
           const yearMatch = (ytVideo.title || '').match(/\b(19[3-9]\d|20[012]\d)\b/)
           const year = yearMatch ? yearMatch[0] : 'N/A'
 
-          // Enrich with OMDb poster/overview/rating (optional)
-          let omdbPoster = '', omdbOverview = '', omdbRating = ''
-          if (OMDB_KEY) {
-            try {
-              const omdbUrl = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(queryTitle)}${year !== 'N/A' ? `&y=${year}` : ''}`
-              const omdbResponse = await withTimeout(omdbUrl, 8000, ROUTE)
-              if (omdbResponse.ok) {
-                const omdbData = await omdbResponse.json()
-                if (omdbData?.Response === 'True') {
-                  omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
-                  omdbOverview = typeof omdbData.Plot === 'string' && omdbData.Plot !== 'N/A' ? omdbData.Plot : ''
-                  omdbRating = typeof omdbData.imdbRating === 'string' && omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : ''
-                } else {
-                  apiLog.warn(ROUTE, `OMDB no result for "${queryTitle}"`, { reason: omdbData?.Error })
+          // Enrich with Wikipedia summary/thumbnail — free, no API key, works on all networks
+          let wikiPoster = '', wikiOverview = ''
+          try {
+            const wikiSlug = encodeURIComponent(
+              queryTitle.replace(/\s+/g, '_').replace(/[()]/g, '')
+            )
+            const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${wikiSlug}`
+            const wikiResp = await Promise.race([
+              fetch(wikiUrl, {
+                headers: {
+                  'User-Agent': 'BookPulse/1.0 (public-domain library; contact via replit)',
+                  'Accept': 'application/json',
+                },
+              }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('wiki timeout')), 5000)),
+            ])
+            if (wikiResp.ok) {
+              const wikiData = await wikiResp.json()
+              if (wikiData?.type !== 'disambiguation' && wikiData?.extract) {
+                const extract = wikiData.extract.split('\n')[0] || ''
+                wikiOverview = extract.length > 350 ? extract.substring(0, 347) + '...' : extract
+                if (wikiData?.thumbnail?.source) {
+                  wikiPoster = wikiData.thumbnail.source
                 }
               }
-            } catch (omdbErr) {
-              apiLog.warn(ROUTE, `OMDB lookup failed for "${queryTitle}"`, omdbErr)
             }
+          } catch (wikiErr) {
+            apiLog.warn(ROUTE, `Wikipedia lookup failed for "${queryTitle}"`, wikiErr)
           }
 
-          const image = omdbPoster || ytThumb || 'https://placehold.co/400x600/1a1c23/f3b327?text=Classic+Film'
+          const image = wikiPoster || ytThumb || `https://placehold.co/400x600/1a1c23/f3b327?text=${encodeURIComponent(queryTitle)}`
 
           return {
             id: `yt-${ytVideo.videoId}`,
@@ -880,8 +887,8 @@ app.get('/api/movies/trailers', async (req, res) => {
             url: trailerUrl,
             hasTrailer: true,
             year,
-            overview: omdbOverview || 'A classic public-domain adaptation.',
-            rating: omdbRating,
+            overview: wikiOverview || 'A classic public-domain adaptation.',
+            rating: '',
             confidence: 80,
             sourceBookTitle: title,
           }
@@ -1204,6 +1211,83 @@ app.get('/api/search/unified', async (req, res) => {
   const result = { query, page, total: uniqueBooks.length, books: uniqueBooks, sourceStatus }
   if (uniqueBooks.length > 0) cache.set(cacheKey, result, CACHE_TTL.IA_SEARCH)
   res.json(result)
+})
+
+// ─── Cover Image Proxy (always returns HTTP 200, never 404) ───────────────
+app.get('/api/cover', async (req, res) => {
+  const ROUTE = 'cover'
+  const url = req.query.url
+  const title = String(req.query.title || 'Book').trim()
+
+  const makeSvgPlaceholder = (label) => {
+    const palettes = [
+      ['0d0d0d', '1a1a2e', 'e94560'], ['100f1a', '1f1135', 'bd93f9'],
+      ['0a0f0d', '1a2f2a', '50fa7b'], ['140d0a', '2d1810', 'ffb86c'],
+      ['0f0a14', '261535', 'ff79c6'], ['0a0d14', '152535', '8be9fd'],
+    ]
+    const hash = label.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+    const [bg1, bg2, acc] = palettes[hash % palettes.length]
+    const safe = label.length > 22 ? label.substring(0, 19) + '...' : label
+    const words = safe.split(' ')
+    const lines = []
+    let cur = ''
+    for (const w of words) {
+      if ((cur + ' ' + w).length > 14) { if (cur) lines.push(cur.trim()); cur = w } else { cur = cur ? cur + ' ' + w : w }
+    }
+    if (cur) lines.push(cur.trim())
+    const textRows = lines.slice(0, 4).map((l, i) =>
+      `<text x="100" y="${120 + i * 22}" font-size="16" fill="white" text-anchor="middle" font-family="Georgia,serif" font-weight="700">${l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</text>`
+    ).join('')
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#${bg1}"/>
+      <stop offset="100%" stop-color="#${bg2}"/>
+    </linearGradient>
+  </defs>
+  <rect fill="url(#bg)" width="200" height="300" rx="6"/>
+  <rect x="8" y="8" width="184" height="284" fill="none" stroke="#${acc}" stroke-width="1.5" stroke-opacity="0.6" rx="4"/>
+  <rect x="50" y="80" width="100" height="2" fill="#${acc}" rx="1"/>
+  ${textRows}
+  <rect x="40" y="220" width="120" height="1" fill="#${acc}" opacity="0.4"/>
+  <text x="100" y="270" font-size="7" fill="#${acc}" text-anchor="middle" font-family="Arial,sans-serif" letter-spacing="2" opacity="0.8">BOOKPULSE</text>
+</svg>`
+  }
+
+  const cacheKey = `cover:${url || ''}:${title}`
+  const cached = cache.get(cacheKey)
+  if (cached) {
+    res.setHeader('Content-Type', cached.type)
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    return res.send(cached.data)
+  }
+
+  if (url) {
+    try {
+      const r = await withTimeout(url, 8000, ROUTE)
+      if (r.ok) {
+        const ct = r.headers.get('content-type') || ''
+        if (ct.startsWith('image/') && !ct.includes('svg')) {
+          const buf = Buffer.from(await r.arrayBuffer())
+          if (buf.length > 500) {
+            cache.set(cacheKey, { type: ct, data: buf }, 24 * 60 * 60 * 1000)
+            res.setHeader('Content-Type', ct)
+            res.setHeader('Cache-Control', 'public, max-age=86400')
+            return res.send(buf)
+          }
+        }
+      }
+    } catch (err) {
+      apiLog.warn(ROUTE, `Upstream fetch failed: ${err.message}`, { url })
+    }
+  }
+
+  // Fallback: return SVG placeholder — always 200 OK
+  const svg = makeSvgPlaceholder(title)
+  cache.set(cacheKey, { type: 'image/svg+xml', data: Buffer.from(svg) }, 60 * 60 * 1000)
+  res.setHeader('Content-Type', 'image/svg+xml')
+  res.setHeader('Cache-Control', 'public, max-age=3600')
+  res.send(svg)
 })
 
 // ─── Database Endpoints ────────────────────────────────────────────────────

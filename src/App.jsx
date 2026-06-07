@@ -15,13 +15,19 @@ const RANDOM_SEARCH_TERMS = [
   'mystery novel',
 ]
 
+const gCover = (id, title) =>
+  `/api/cover?url=${encodeURIComponent(`https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`)}&title=${encodeURIComponent(title)}`
+
+const ytCover = (videoId, title) =>
+  `/api/cover?url=${encodeURIComponent(`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`)}&title=${encodeURIComponent(title)}`
+
 const FALLBACK_BOOKS = [
   {
     id: 'gutenberg-1342',
     title: 'Pride and Prejudice',
     author: 'Jane Austen',
     authors: 'Jane Austen',
-    image: 'https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg',
+    image: gCover(1342, 'Pride and Prejudice'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -41,7 +47,7 @@ const FALLBACK_BOOKS = [
     title: 'Frankenstein; or, The Modern Prometheus',
     author: 'Mary Wollstonecraft Shelley',
     authors: 'Mary Wollstonecraft Shelley',
-    image: 'https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg',
+    image: gCover(84, 'Frankenstein'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -61,7 +67,7 @@ const FALLBACK_BOOKS = [
     title: 'The Time Machine',
     author: 'H. G. Wells',
     authors: 'H. G. Wells',
-    image: 'https://www.gutenberg.org/cache/epub/35/pg35.cover.medium.jpg',
+    image: gCover(35, 'The Time Machine'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -81,7 +87,7 @@ const FALLBACK_BOOKS = [
     title: 'Dracula',
     author: 'Bram Stoker',
     authors: 'Bram Stoker',
-    image: 'https://www.gutenberg.org/cache/epub/345/pg345.cover.medium.jpg',
+    image: gCover(345, 'Dracula'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -101,7 +107,7 @@ const FALLBACK_BOOKS = [
     title: 'Treasure Island',
     author: 'Robert Louis Stevenson',
     authors: 'Robert Louis Stevenson',
-    image: 'https://www.gutenberg.org/cache/epub/120/pg120.cover.medium.jpg',
+    image: gCover(120, 'Treasure Island'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -121,7 +127,7 @@ const FALLBACK_BOOKS = [
     title: 'Jane Eyre: An Autobiography',
     author: 'Charlotte Brontë',
     authors: 'Charlotte Brontë',
-    image: 'https://www.gutenberg.org/cache/epub/1260/pg1260.cover.medium.jpg',
+    image: gCover(1260, 'Jane Eyre'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -141,7 +147,7 @@ const FALLBACK_BOOKS = [
     title: 'Little Women',
     author: 'Louisa May Alcott',
     authors: 'Louisa May Alcott',
-    image: 'https://www.gutenberg.org/cache/epub/514/pg514.cover.medium.jpg',
+    image: gCover(514, 'Little Women'),
     description: 'Public-domain text from Project Gutenberg.',
     isFullAvailable: true,
     hasPreview: true,
@@ -159,12 +165,12 @@ const FALLBACK_BOOKS = [
 ]
 
 const FALLBACK_MOVIES = [
-  { id: 'fm-1', title: 'Pride and Prejudice', year: '2005', image: 'https://img.youtube.com/vi/Ur_DIHs92NM/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=Ur_DIHs92NM', sourceBookTitle: 'Pride and Prejudice' },
-  { id: 'fm-2', title: 'Frankenstein', year: '1931', image: 'https://img.youtube.com/vi/2onU6r6AqOU/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=2onU6r6AqOU', sourceBookTitle: 'Frankenstein' },
-  { id: 'fm-3', title: 'The Time Machine', year: '1960', image: 'https://img.youtube.com/vi/36x6dXEX7UM/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=36x6dXEX7UM', sourceBookTitle: 'The Time Machine' },
-  { id: 'fm-4', title: 'Treasure Island', year: '1950', image: 'https://img.youtube.com/vi/3Tla1M4Daok/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=3Tla1M4Daok', sourceBookTitle: 'Treasure Island' },
-  { id: 'fm-5', title: 'Jane Eyre', year: '2011', image: 'https://img.youtube.com/vi/Rs8MlqyT6H0/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=Rs8MlqyT6H0', sourceBookTitle: 'Jane Eyre' },
-  { id: 'fm-6', title: 'Little Women', year: '2019', image: 'https://img.youtube.com/vi/AST2-4db4ic/hqdefault.jpg', url: 'https://www.youtube.com/watch?v=AST2-4db4ic', sourceBookTitle: 'Little Women' },
+  { id: 'fm-1', title: 'Pride and Prejudice', year: '2005', image: ytCover('Ur_DIHs92NM', 'Pride and Prejudice'), url: 'https://www.youtube.com/watch?v=Ur_DIHs92NM', sourceBookTitle: 'Pride and Prejudice' },
+  { id: 'fm-2', title: 'Frankenstein', year: '1931', image: ytCover('2onU6r6AqOU', 'Frankenstein'), url: 'https://www.youtube.com/watch?v=2onU6r6AqOU', sourceBookTitle: 'Frankenstein' },
+  { id: 'fm-3', title: 'The Time Machine', year: '1960', image: ytCover('36x6dXEX7UM', 'The Time Machine'), url: 'https://www.youtube.com/watch?v=36x6dXEX7UM', sourceBookTitle: 'The Time Machine' },
+  { id: 'fm-4', title: 'Treasure Island', year: '1950', image: ytCover('3Tla1M4Daok', 'Treasure Island'), url: 'https://www.youtube.com/watch?v=3Tla1M4Daok', sourceBookTitle: 'Treasure Island' },
+  { id: 'fm-5', title: 'Jane Eyre', year: '2011', image: ytCover('Rs8MlqyT6H0', 'Jane Eyre'), url: 'https://www.youtube.com/watch?v=Rs8MlqyT6H0', sourceBookTitle: 'Jane Eyre' },
+  { id: 'fm-6', title: 'Little Women', year: '2019', image: ytCover('AST2-4db4ic', 'Little Women'), url: 'https://www.youtube.com/watch?v=AST2-4db4ic', sourceBookTitle: 'Little Women' },
 ]
 
 const navItems = [
@@ -637,7 +643,7 @@ function App() {
           <div className="category-row">
             {filteredCategories.map((book) => (
               <article key={book.id || book.title} className="category-card">
-                <img src={book.image} alt={book.title} />
+                <img src={book.image} alt={book.title} onError={(e) => { e.currentTarget.style.display = 'none' }} />
                 <span>{book.title}</span>
                 <small>{book.author}</small>
                 <button className="read-now-btn" onClick={() => handleReadBook(book)} type="button">Read Now</button>
@@ -715,7 +721,7 @@ function App() {
         <div className="all-books-grid">
           {filteredLibraryBooks.slice(0, visibleBookCount).map((book) => (
             <article className="all-book-card" key={book.id}>
-              <img src={book.image} alt={book.title} />
+              <img src={book.image} alt={book.title} onError={(e) => { e.currentTarget.style.display = 'none' }} />
               <h3>{book.title}</h3>
               <p>{book.author}</p>
               <button onClick={() => handleReadBook(book)} type="button">Read Now</button>
@@ -749,7 +755,7 @@ function App() {
                 title: bm.title,
                 author: bm.author,
                 authors: bm.author,
-                image: bm.image || `https://www.gutenberg.org/cache/epub/${bm.book_id.replace('gutenberg-', '')}/pg${bm.book_id.replace('gutenberg-', '')}.cover.medium.jpg`,
+                image: bm.image || gCover(bm.book_id.replace('gutenberg-', ''), bm.title || 'Book'),
                 source: bm.source || 'Project Gutenberg',
                 isFullAvailable: true,
                 hasText: true,
@@ -764,7 +770,7 @@ function App() {
               }
               return (
                 <article className="all-book-card" key={bm.book_id}>
-                  <img src={book.image} alt={book.title} />
+                  <img src={book.image} alt={book.title} onError={(e) => { e.currentTarget.style.display = 'none' }} />
                   <h3>{book.title}</h3>
                   <p>{book.author}</p>
                   <button onClick={() => handleReadBook(book)} type="button">Read Now</button>
