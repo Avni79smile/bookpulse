@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import './styles/App.css'
 import BookReader from './components/BookReader'
-import { getBookmarks } from './utils/userLib'
+import { getBookmarks, getDeviceId } from './utils/userLib'
+import { clearAuth, getCurrentUser, setAuth } from './utils/auth.js'
 
 const RANDOM_SEARCH_TERMS = [
   'classic literature',
@@ -299,10 +300,86 @@ function App() {
     } catch { return null }
   })
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser())
+  const [googleClientId, setGoogleClientId] = useState('')
+  const [showAuthMenu, setShowAuthMenu] = useState(false)
+  const googleBtnRef = useRef(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
   }, [darkMode])
+
+  // Fetch Google client ID and initialize GIS when the script is ready
+  useEffect(() => {
+    fetch('/api/auth/config')
+      .then((r) => r.json())
+      .then(({ clientId }) => {
+        if (!clientId) return
+        setGoogleClientId(clientId)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Render Google Sign-In button whenever clientId or ref becomes available
+  useEffect(() => {
+    if (!googleClientId || !googleBtnRef.current) return
+    const tryRender = () => {
+      if (!window.google?.accounts?.id) return
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      })
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'outline',
+        size: 'medium',
+        shape: 'pill',
+        text: 'signin_with',
+        logo_alignment: 'left',
+      })
+    }
+    // GIS script might not be loaded yet — poll briefly
+    if (window.google?.accounts?.id) {
+      tryRender()
+    } else {
+      const t = setInterval(() => {
+        if (window.google?.accounts?.id) { clearInterval(t); tryRender() }
+      }, 200)
+      return () => clearInterval(t)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleClientId, showAuthMenu])
+
+  const handleGoogleCredential = useCallback(async (response) => {
+    try {
+      // Capture guest device_id BEFORE setting auth (so migration can happen)
+      const guestDeviceId = getDeviceId()
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: response.credential, deviceId: guestDeviceId }),
+      })
+      if (!res.ok) throw new Error('Sign-in failed')
+      const { token, user } = await res.json()
+      setAuth(token, user)
+      setCurrentUser(user)
+      setShowAuthMenu(false)
+      loadMyBookmarks()
+    } catch {
+      console.error('Google sign-in failed')
+    }
+  }, []) // loadMyBookmarks added below via ref pattern
+
+  const handleLogout = useCallback(() => {
+    clearAuth()
+    setCurrentUser(null)
+    setShowAuthMenu(false)
+    if (window.google?.accounts?.id) {
+      window.google.accounts.id.disableAutoSelect()
+    }
+    loadMyBookmarks()
+  }, []) // loadMyBookmarks added below
 
   useEffect(() => {
     const loadHomeData = async () => {
@@ -536,8 +613,57 @@ function App() {
               >
                 {darkMode ? '☀️' : '🌙'}
               </button>
-              <button className="ghost-btn" onClick={() => scrollToSection('why', 'About')} type="button">Login</button>
-              <button className="solid-btn" onClick={() => scrollToSection('why', 'About')} type="button">Sign Up</button>
+              {currentUser ? (
+                <div className="auth-user-wrap">
+                  <button
+                    className="auth-avatar-btn"
+                    onClick={() => setShowAuthMenu((v) => !v)}
+                    type="button"
+                    aria-label="Account menu"
+                  >
+                    {currentUser.picture
+                      ? <img src={currentUser.picture} alt={currentUser.name} className="auth-avatar" referrerPolicy="no-referrer" />
+                      : <span className="auth-avatar-initials">{currentUser.name?.[0] ?? '?'}</span>
+                    }
+                    <span className="auth-display-name">{currentUser.name?.split(' ')[0]}</span>
+                  </button>
+                  {showAuthMenu && (
+                    <div className="auth-dropdown">
+                      <div className="auth-dropdown-email">{currentUser.email}</div>
+                      <button className="auth-signout-btn" onClick={handleLogout} type="button">Sign Out</button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="auth-signin-wrap">
+                  {googleClientId ? (
+                    <>
+                      <button
+                        className="ghost-btn"
+                        onClick={() => setShowAuthMenu((v) => !v)}
+                        type="button"
+                      >
+                        Sign In
+                      </button>
+                      {showAuthMenu && (
+                        <div className="auth-dropdown auth-dropdown-signin">
+                          <p className="auth-dropdown-hint">Sign in to save bookmarks across devices</p>
+                          <div ref={googleBtnRef} className="auth-google-btn-wrap" />
+                          <button
+                            className="auth-guest-btn"
+                            onClick={() => setShowAuthMenu(false)}
+                            type="button"
+                          >
+                            Continue as Guest
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <button className="ghost-btn" onClick={() => scrollToSection('my-library', 'My Library')} type="button">Sign In</button>
+                  )}
+                </div>
+              )}
             </div>
           </nav>
 

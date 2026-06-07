@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import pg from 'pg'
 import yts from 'yt-search'
+import { setupAuthRoutes } from './auth.js'
 
 dns.setDefaultResultOrder('ipv4first')
 
@@ -105,6 +106,14 @@ const initDb = async () => {
   if (!pool) { return }
   try {
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        google_id TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL,
+        name TEXT NOT NULL,
+        picture TEXT DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
       CREATE TABLE IF NOT EXISTS bookmarks (
         id SERIAL PRIMARY KEY,
         device_id TEXT NOT NULL,
@@ -133,6 +142,8 @@ const initDb = async () => {
   }
 }
 initDb()
+
+setupAuthRoutes(app, pool)
 
 // ─── Curated Gutenberg Catalog (120+ books) ────────────────────────────────
 const makeBook = (id, title, authorName, birthYear, deathYear, subjects = [], bookshelves = [], downloads = 10000) => ({
