@@ -1,7 +1,19 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react'
 import HTMLFlipBook from 'react-pageflip'
 import '../styles/BookReader.css'
 import { addBookmark, removeBookmark, getBookmarks, isBookmarked, saveProgress, getProgress } from '../utils/userLib'
+
+// Memoized flip page — prevents all pages re-rendering when only currentPage changes
+const FlipPage = memo(function FlipPage({ text, pageNum, fontSize }) {
+  return (
+    <div className="flipbook-page" style={{ contain: 'layout style' }}>
+      <div className="flipbook-page-inner" style={{ fontSize: `${fontSize}px` }}>
+        <div className="flipbook-page-number">{pageNum}</div>
+        <pre>{text}</pre>
+      </div>
+    </div>
+  )
+})
 
 function BookReader({ book, onBack }) {
   const [activeTab, setActiveTab] = useState('read')
@@ -32,11 +44,16 @@ function BookReader({ book, onBack }) {
   const [bookmarkSaving, setBookmarkSaving] = useState(false)
   const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('reader-font-size') || '16', 10))
   const [readerTheme, setReaderTheme] = useState(() => localStorage.getItem('reader-theme') || 'light')
-  const [plainMode, setPlainMode] = useState(() => localStorage.getItem('reader-plain-mode') === 'true')
+  const [plainMode, setPlainMode] = useState(() =>
+    localStorage.getItem('reader-plain-mode') === 'true' ||
+    (typeof window !== 'undefined' && window.innerWidth < 768)
+  )
+  const [scrollProgress, setScrollProgress] = useState(0)
   const plainScrollRef = useRef(null)
+  const textReaderRef = useRef(null)
 
   const flipBookRef = useRef(null)
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
 
   const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -74,6 +91,17 @@ function BookReader({ book, onBack }) {
   useEffect(() => { localStorage.setItem('reader-font-size', fontSize) }, [fontSize])
   useEffect(() => { localStorage.setItem('reader-theme', readerTheme) }, [readerTheme])
   useEffect(() => { localStorage.setItem('reader-plain-mode', plainMode) }, [plainMode])
+
+  // Reactive isMobile — force plain mode when going mobile
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (mobile) setPlainMode(true)
+    }
+    window.addEventListener('resize', handleResize, { passive: true })
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   // Keyboard page navigation
   useEffect(() => {
@@ -363,7 +391,7 @@ function BookReader({ book, onBack }) {
       .map((paragraph) => paragraph.trim())
       .filter(Boolean)
 
-    const maxCharsPerPage = 1800
+    const maxCharsPerPage = 2400
     const pages = []
     let currentChunk = ''
 
@@ -386,6 +414,7 @@ function BookReader({ book, onBack }) {
 
   useEffect(() => {
     setCurrentPage(1)
+    setScrollProgress(0)
   }, [selectedChapter, textContent])
 
   // Auto-switch to plain reader for very large books
@@ -393,11 +422,41 @@ function BookReader({ book, onBack }) {
     if (paginatedText.length > 120) setPlainMode(true)
   }, [paginatedText.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const progressPercent = paginatedText.length > 0
-    ? Math.min(100, Math.round((currentPage / paginatedText.length) * 100))
-    : 0
+  const progressPercent = plainMode
+    ? scrollProgress
+    : (paginatedText.length > 0
+        ? Math.min(100, Math.round((currentPage / paginatedText.length) * 100))
+        : 0)
 
   const clampFontSize = (size) => Math.min(26, Math.max(13, size))
+
+  // Track scroll position in plain reader — updates progress bar + saves per chapter
+  const handlePlainScroll = useCallback((e) => {
+    const el = e.target
+    const max = el.scrollHeight - el.clientHeight
+    if (max <= 0) return
+    const pct = Math.min(100, Math.round((el.scrollTop / max) * 100))
+    setScrollProgress(pct)
+    try {
+      localStorage.setItem(`reader-scroll-${book.id}-ch${selectedChapter}`, String(Math.round(el.scrollTop)))
+    } catch {}
+  }, [book.id, selectedChapter])
+
+  // Restore scroll position when entering plain mode or changing chapter
+  useEffect(() => {
+    if (!plainMode) return
+    const key = `reader-scroll-${book.id}-ch${selectedChapter}`
+    const saved = localStorage.getItem(key)
+    const top = saved ? parseInt(saved, 10) : 0
+    const t = setTimeout(() => {
+      const el = textReaderRef.current
+      if (!el) return
+      el.scrollTop = top
+      const max = el.scrollHeight - el.clientHeight
+      if (max > 0 && top > 0) setScrollProgress(Math.min(100, Math.round((top / max) * 100)))
+    }, 80)
+    return () => clearTimeout(t)
+  }, [plainMode, book.id, selectedChapter])
 
   useEffect(() => {
     if (book.source !== 'Google Books' || !book.googleId) return
@@ -646,7 +705,13 @@ function BookReader({ book, onBack }) {
                 </div>
               )}
               {textContent && (
-                <div className="text-reader" data-theme={readerTheme} style={{ '--reader-font-size': `${fontSize}px` }}>
+                <div
+                  className="text-reader"
+                  data-theme={readerTheme}
+                  style={{ '--reader-font-size': `${fontSize}px` }}
+                  ref={textReaderRef}
+                  onScroll={plainMode ? handlePlainScroll : undefined}
+                >
 
                   {/* Reading Toolbar */}
                   <div className="reading-toolbar">
@@ -762,6 +827,7 @@ function BookReader({ book, onBack }) {
                               ref={plainScrollRef}
                               className="plain-reader"
                               style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}
+                              onScroll={handlePlainScroll}
                             >
                               {paginatedText.map((pageText, index) => (
                                 <p key={`plain-ch-${selectedChapter}-${index}`} className="plain-reader-para">{pageText}</p>
@@ -785,24 +851,19 @@ function BookReader({ book, onBack }) {
                                   maxWidth={860}
                                   minHeight={320}
                                   maxHeight={960}
-                                  maxShadowOpacity={isMobile ? 0 : 0.25}
+                                  maxShadowOpacity={0.18}
                                   showCover={false}
-                                  mobileScrollSupport
+                                  mobileScrollSupport={false}
                                   usePortrait
                                   className="flipbook"
                                   startPage={0}
-                                  drawShadow={!isMobile}
-                                  flippingTime={400}
-                                  useMouseEvents={!isMobile}
+                                  drawShadow
+                                  flippingTime={280}
+                                  useMouseEvents
                                   onFlip={(event) => setCurrentPage((event.data || 0) + 1)}
                                 >
                                   {paginatedText.map((pageText, index) => (
-                                    <div className="flipbook-page" key={`chapter-${selectedChapter}-page-${index}`} style={{ contain: 'layout style' }}>
-                                      <div className="flipbook-page-inner" style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}>
-                                        <div className="flipbook-page-number">{index + 1}</div>
-                                        <pre>{pageText}</pre>
-                                      </div>
-                                    </div>
+                                    <FlipPage key={`ch-${selectedChapter}-p-${index}`} text={pageText} pageNum={index + 1} fontSize={fontSize} />
                                   ))}
                                 </HTMLFlipBook>
                               </div>
@@ -821,6 +882,7 @@ function BookReader({ book, onBack }) {
                             ref={plainScrollRef}
                             className="plain-reader"
                             style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}
+                            onScroll={handlePlainScroll}
                           >
                             {paginatedText.map((pageText, index) => (
                               <p key={`plain-full-${index}`} className="plain-reader-para">{pageText}</p>
@@ -844,24 +906,19 @@ function BookReader({ book, onBack }) {
                                 maxWidth={860}
                                 minHeight={320}
                                 maxHeight={960}
-                                maxShadowOpacity={isMobile ? 0 : 0.25}
+                                maxShadowOpacity={0.18}
                                 showCover={false}
-                                mobileScrollSupport
+                                mobileScrollSupport={false}
                                 usePortrait
                                 className="flipbook"
                                 startPage={0}
-                                drawShadow={!isMobile}
-                                flippingTime={400}
-                                useMouseEvents={!isMobile}
+                                drawShadow
+                                flippingTime={280}
+                                useMouseEvents
                                 onFlip={(event) => setCurrentPage((event.data || 0) + 1)}
                               >
                                 {paginatedText.map((pageText, index) => (
-                                  <div className="flipbook-page" key={`full-text-page-${index}`} style={{ contain: 'layout style' }}>
-                                    <div className="flipbook-page-inner" style={{ fontSize: `var(--reader-font-size, ${fontSize}px)` }}>
-                                      <div className="flipbook-page-number">{index + 1}</div>
-                                      <pre>{pageText}</pre>
-                                    </div>
-                                  </div>
+                                  <FlipPage key={`full-p-${index}`} text={pageText} pageNum={index + 1} fontSize={fontSize} />
                                 ))}
                               </HTMLFlipBook>
                             </div>

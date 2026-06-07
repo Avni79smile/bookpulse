@@ -1,2 +1,3 @@
 - [Frontend design system](design-system.md) — CSS custom properties with light/dark mode via `[data-theme="dark"]` on `<html>`, toggled from App.jsx dark mode state
 - [Trailer matching confidence](trailer-matching.md) — multi-tier scoring, pipe `|` separator for title queries (not comma), CONFIDENCE_MIN=35 threshold
+- [BookReader architecture](bookreader-arch.md) — scroll tracking on textReaderRef (.text-reader), FlipPage memoized outside component, mobile always uses plain mode
