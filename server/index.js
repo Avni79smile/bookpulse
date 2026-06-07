@@ -18,6 +18,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY
 const OMDB_KEY = process.env.OMDB_KEY
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
 
+
 app.use(express.json())
 
 // ─── Structured API Logger ─────────────────────────────────────────────────
@@ -795,10 +796,11 @@ app.get('/api/movies/trailers', async (req, res) => {
       try {
         // Use core title (before : or ;) for a tighter TMDB search query
         const queryTitle = normalizeTitleForSearch(title).split(/[:;]/)[0].trim() || title
-        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(queryTitle)}&include_adult=false`
-        const tmdbHeaders = TMDB_API_KEY
-          ? { Authorization: `Bearer ${TMDB_API_KEY}` }
-          : {}
+        // v3 API keys are ≤32 hex chars; v4 Bearer tokens are long JWTs (>50 chars)
+        const isV4Bearer = TMDB_API_KEY && TMDB_API_KEY.length > 50
+        const tmdbKeyParam = !isV4Bearer && TMDB_API_KEY ? TMDB_API_KEY : ''
+        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(queryTitle)}&include_adult=false${tmdbKeyParam ? `&api_key=${tmdbKeyParam}` : ''}`
+        const tmdbHeaders = isV4Bearer ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {}
 
         let searchData
         try {
@@ -836,7 +838,7 @@ app.get('/api/movies/trailers', async (req, res) => {
         // Fetch trailer videos from TMDB
         let trailer = null
         try {
-          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos`
+          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos${tmdbKeyParam ? `?api_key=${tmdbKeyParam}` : ''}`
           const videosResponse = await withTimeout(videosUrl, 12000, ROUTE, tmdbHeaders)
           if (videosResponse.ok) {
             const videosData = await videosResponse.json()

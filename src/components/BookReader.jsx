@@ -78,14 +78,40 @@ function BookReader({ book, onBack }) {
     loadProgress()
   }, [book.id])
 
-  // Save progress when chapter changes (debounced via timeout)
+  // Save progress when chapter/page changes (debounced) + snapshot to localStorage for banner
   useEffect(() => {
     if (!book.id?.startsWith('gutenberg-')) return
     const timer = setTimeout(() => {
       saveProgress(book.id, book.title, selectedChapter, currentPage)
+      try {
+        const snap = {
+          id: book.id,
+          title: book.title,
+          authors: book.authors || book.author || '',
+          image: book.image || '',
+          source: book.source || '',
+          textLink: book.textLink || '',
+          textProxyLink: book.textProxyLink || '',
+          infoLink: book.infoLink || '',
+          previewLink: book.previewLink || '',
+          hasAudio: Boolean(book.hasAudio),
+          hasText: Boolean(book.hasText),
+          isFullAvailable: Boolean(book.isFullAvailable),
+          hasPreview: Boolean(book.hasPreview),
+          publishedDate: book.publishedDate || '',
+          categories: book.categories || [],
+          chapter: selectedChapter,
+          chapterTitle: chapters[selectedChapter]?.title || '',
+          totalChapters: chapters.length,
+          page: currentPage,
+          totalPages: paginatedText.length,
+          _savedAt: Date.now(),
+        }
+        localStorage.setItem('reader-last-read', JSON.stringify(snap))
+      } catch {}
     }, 1500)
     return () => clearTimeout(timer)
-  }, [book.id, book.title, selectedChapter, currentPage])
+  }, [book, selectedChapter, currentPage, chapters, paginatedText.length])
 
   // Persist reading preferences
   useEffect(() => { localStorage.setItem('reader-font-size', fontSize) }, [fontSize])

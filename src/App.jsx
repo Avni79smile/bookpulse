@@ -286,6 +286,13 @@ function App() {
   const [darkMode, setDarkMode] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
   )
+  const [lastRead, setLastRead] = useState(() => {
+    try {
+      const raw = localStorage.getItem('reader-last-read')
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light'
@@ -559,6 +566,70 @@ function App() {
           </div>
         </div>
       </header>
+
+      {lastRead && !bannerDismissed && (
+        <div className="continue-reading-banner fade-in">
+          {lastRead.image && (
+            <img
+              className="crb-cover"
+              src={lastRead.image}
+              alt={lastRead.title}
+              onError={(e) => { e.target.style.display = 'none' }}
+            />
+          )}
+          <div className="crb-body">
+            <div className="crb-label">Continue Reading</div>
+            <div className="crb-title">{lastRead.title}</div>
+            {lastRead.authors && <div className="crb-author">{lastRead.authors}</div>}
+            <div className="crb-progress-wrap">
+              {lastRead.totalChapters > 0
+                ? <span className="crb-progress-text">
+                    Ch. {lastRead.chapter + 1} / {lastRead.totalChapters}
+                    {lastRead.chapterTitle ? ` — ${lastRead.chapterTitle}` : ''}
+                  </span>
+                : lastRead.totalPages > 0
+                ? <span className="crb-progress-text">
+                    Page {lastRead.page} / {lastRead.totalPages}
+                    {' '}({Math.round((lastRead.page / lastRead.totalPages) * 100)}%)
+                  </span>
+                : null
+              }
+              <div className="crb-bar-track">
+                <div
+                  className="crb-bar-fill"
+                  style={{
+                    width: `${lastRead.totalChapters > 0
+                      ? Math.min(100, Math.round(((lastRead.chapter + 1) / lastRead.totalChapters) * 100))
+                      : lastRead.totalPages > 0
+                      ? Math.min(100, Math.round((lastRead.page / lastRead.totalPages) * 100))
+                      : 0}%`
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="crb-actions">
+            <button
+              className="crb-jump-btn"
+              onClick={() => {
+                setBannerDismissed(true)
+                handleReadBook(lastRead)
+              }}
+              type="button"
+            >
+              Jump Back In →
+            </button>
+            <button
+              className="crb-dismiss"
+              onClick={() => setBannerDismissed(true)}
+              type="button"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="content-wrap">
         <section className="main-column" id="collection">
