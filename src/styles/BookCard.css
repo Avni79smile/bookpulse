@@ -1,9 +1,9 @@
-/* BookCard — clean premium library card */
+/* BookCard — premium library card */
 
 .book-card {
   position: relative;
   background: var(--surface);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--border);
   box-shadow: var(--sh-card);
@@ -17,18 +17,18 @@
 }
 
 .book-card:hover {
-  transform: translateY(-7px);
+  transform: translateY(-8px);
   box-shadow: var(--sh-hover);
-  border-color: rgba(201, 150, 26, 0.28);
+  border-color: rgba(201, 150, 26, 0.26);
 }
 
 .pulse-glow { display: none; }
 
-/* ── Cover image ──────────────────────────────────────────────────────── */
+/* ── Cover image ─────────────────────────────────────────────────────────── */
 .book-image-wrapper {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 2 / 3;
   overflow: hidden;
   flex-shrink: 0;
   background: var(--surface-2);
@@ -42,16 +42,16 @@
   display: block;
 }
 
-.book-card:hover .book-image { transform: scale(1.07); }
+.book-card:hover .book-image { transform: scale(1.06); }
 
-/* ── Hover overlay ────────────────────────────────────────────────────── */
+/* ── Hover overlay ───────────────────────────────────────────────────────── */
 .book-overlay {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(8, 6, 3, 0.88) 0%,
-    rgba(8, 6, 3, 0.32) 50%,
+    rgba(6, 4, 2, 0.92) 0%,
+    rgba(6, 4, 2, 0.44) 44%,
     transparent 100%
   );
   display: flex;
@@ -64,66 +64,67 @@
 
 .book-card:hover .book-overlay { opacity: 1; }
 
-/* ── Audio indicator ──────────────────────────────────────────────────── */
+/* ── Audio indicator ─────────────────────────────────────────────────────── */
 .audio-indicator {
   position: absolute;
   bottom: 10px;
   left: 10px;
   font-size: 1rem;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.55));
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
   z-index: 3;
-  animation: subtlePulse 2.8s ease-in-out infinite;
+  animation: subtlePulse 3s ease-in-out infinite;
 }
 
 @keyframes subtlePulse {
-  0%, 100% { transform: scale(1); }
-  50%       { transform: scale(1.12); }
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.14); opacity: 0.85; }
 }
 
-/* ── Access badge ─────────────────────────────────────────────────────── */
+/* ── Access badge ────────────────────────────────────────────────────────── */
 .access-badge {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 9px;
+  right: 9px;
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: 0.6rem;
-  font-weight: 700;
+  font-size: 0.58rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  backdrop-filter: blur(10px);
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 2;
 }
 
 .access-badge.full {
-  background: rgba(22, 185, 100, 0.88);
+  background: rgba(22, 185, 100, 0.9);
   color: #fff;
 }
 
 .access-badge.preview {
-  background: rgba(217, 142, 20, 0.9);
+  background: rgba(217, 142, 20, 0.92);
   color: #fff;
 }
 
 .access-badge.unavailable {
-  background: rgba(90, 90, 90, 0.72);
-  color: rgba(255,255,255,0.9);
+  background: rgba(80, 80, 80, 0.75);
+  color: rgba(255,255,255,0.92);
 }
 
-/* ── Book info ────────────────────────────────────────────────────────── */
+/* ── Book info ───────────────────────────────────────────────────────────── */
 .book-info {
-  padding: 14px 16px 16px;
+  padding: 12px 14px 14px;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   background: var(--surface);
   transition: background var(--tr-slow);
 }
 
 .book-title {
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: 0.96rem;
+  font-size: 0.93rem;
   font-weight: 600;
   color: var(--ink);
   line-height: 1.3;
@@ -136,7 +137,7 @@
 }
 
 .book-author {
-  font-size: 0.77rem;
+  font-size: 0.76rem;
   color: var(--ink-3);
   font-weight: 400;
   margin: 0;
@@ -150,7 +151,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 9px;
 }
 
 .audiobook-tag {
@@ -159,7 +160,7 @@
   background: rgba(201, 150, 26, 0.1);
   border: 1px solid rgba(201, 150, 26, 0.22);
   border-radius: 999px;
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   color: var(--gold);
   font-weight: 700;
   text-transform: uppercase;
@@ -172,24 +173,24 @@
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   color: var(--ink-3);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-/* ── Read button ──────────────────────────────────────────────────────── */
+/* ── Read button ─────────────────────────────────────────────────────────── */
 .read-btn {
-  padding: 10px 24px;
+  padding: 10px 22px;
   border: none;
   border-radius: 999px;
-  font-weight: 700;
+  font-weight: 800;
   font-size: 0.8rem;
   cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  transform: translateY(8px);
+  letter-spacing: 0.06em;
+  transform: translateY(10px);
   opacity: 0;
   transition: transform var(--tr), opacity var(--tr), box-shadow var(--tr), filter var(--tr);
 }
@@ -201,38 +202,38 @@
 
 .read-btn.full {
   background: linear-gradient(135deg, #f7d06d 0%, #f3b327 100%);
-  color: #111;
-  box-shadow: 0 4px 16px rgba(243, 179, 39, 0.42);
+  color: #1a0e00;
+  box-shadow: 0 4px 18px rgba(243, 179, 39, 0.5);
 }
 
 .read-btn.full:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 6px 22px rgba(243, 179, 39, 0.58);
+  filter: brightness(1.07);
+  box-shadow: 0 6px 24px rgba(243, 179, 39, 0.64);
 }
 
 .read-btn.preview {
-  background: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.92);
   color: #1a1410;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.26);
 }
 
 .read-btn.preview:hover { background: #fff; }
 
 .read-btn.unavailable {
-  background: rgba(255,255,255,0.65);
+  background: rgba(255,255,255,0.68);
   color: rgba(26,20,16,0.65);
 }
 
-/* ── Responsive ───────────────────────────────────────────────────────── */
+/* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .book-card:hover { transform: translateY(-4px); }
-  .book-info { padding: 12px 14px 14px; }
-  .book-title { font-size: 0.9rem; }
+  .book-card:hover { transform: translateY(-5px); }
+  .book-info { padding: 10px 12px 12px; }
+  .book-title { font-size: 0.88rem; }
 }
 
 @media (max-width: 480px) {
-  .book-title  { font-size: 0.84rem; }
-  .book-author { font-size: 0.74rem; }
-  .access-badge { padding: 2px 7px; font-size: 0.57rem; }
-  .read-btn { padding: 9px 20px; font-size: 0.75rem; }
+  .book-title  { font-size: 0.83rem; }
+  .book-author { font-size: 0.72rem; }
+  .access-badge { padding: 2px 7px; font-size: 0.56rem; }
+  .read-btn { padding: 9px 18px; font-size: 0.76rem; }
 }

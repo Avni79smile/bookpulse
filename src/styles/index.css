@@ -27,12 +27,17 @@
   --border-strong: rgba(26, 20, 16, 0.16);
 
   --sh-card:    0 1px 3px rgba(0,0,0,0.04), 0 6px 18px rgba(0,0,0,0.07);
-  --sh-hover:   0 8px 24px rgba(0,0,0,0.1), 0 24px 52px rgba(0,0,0,0.12);
+  --sh-hover:   0 8px 32px rgba(0,0,0,0.12), 0 28px 56px rgba(0,0,0,0.14);
   --sh-elevated: 0 24px 64px rgba(0,0,0,0.15);
 
   --tr:        220ms cubic-bezier(0.4, 0, 0.2, 1);
   --tr-slow:   380ms cubic-bezier(0.4, 0, 0.2, 1);
   --tr-spring: 340ms cubic-bezier(0.175, 0.885, 0.32, 1.1);
+
+  --radius-sm:  10px;
+  --radius-md:  16px;
+  --radius-lg:  22px;
+  --radius-xl:  28px;
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.6;
@@ -55,9 +60,9 @@
   --border:        rgba(237, 231, 220, 0.08);
   --border-strong: rgba(237, 231, 220, 0.14);
 
-  --sh-card:    0 1px 3px rgba(0,0,0,0.24), 0 6px 18px rgba(0,0,0,0.36);
-  --sh-hover:   0 8px 24px rgba(0,0,0,0.4), 0 24px 52px rgba(0,0,0,0.48);
-  --sh-elevated: 0 24px 64px rgba(0,0,0,0.6);
+  --sh-card:    0 1px 3px rgba(0,0,0,0.32), 0 6px 18px rgba(0,0,0,0.44);
+  --sh-hover:   0 12px 36px rgba(0,0,0,0.52), 0 32px 64px rgba(0,0,0,0.56);
+  --sh-elevated: 0 24px 64px rgba(0,0,0,0.7);
 
   --gold-pale:  rgba(243, 179, 39, 0.12);
 
@@ -104,7 +109,7 @@ button {
 img { max-width: 100%; }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, var(--gold-soft) 0%, var(--gold-bright) 100%);
@@ -114,14 +119,14 @@ img { max-width: 100%; }
 
 /* ── Selection ──────────────────────────────────────────────────────────── */
 ::selection {
-  background: var(--gold-bright);
-  color: #fff;
+  background: rgba(243, 179, 39, 0.3);
+  color: var(--ink);
 }
 
 /* ── Skeleton loader ────────────────────────────────────────────────────── */
 @keyframes shimmer {
-  0%   { background-position: -400% 0; }
-  100% { background-position: 400% 0; }
+  0%   { background-position: -600% 0; }
+  100% { background-position: 600% 0; }
 }
 
 .skeleton {
@@ -131,15 +136,52 @@ img { max-width: 100%; }
     var(--bg-2) 50%,
     var(--surface-2) 75%
   );
-  background-size: 400% 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
+  background-size: 600% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
   border-radius: 8px;
 }
 
-/* ── Fade-in utility ────────────────────────────────────────────────────── */
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--sh-card);
+}
+
+.skeleton-cover {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+}
+
+.skeleton-line {
+  height: 14px;
+  margin: 12px 16px 4px;
+  border-radius: 7px;
+}
+
+.skeleton-line.short {
+  width: 60%;
+  height: 11px;
+}
+
+/* ── Fade-in utilities ──────────────────────────────────────────────────── */
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.fade-up { animation: fadeUp 0.5s ease both; }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.fade-up { animation: fadeUp 0.48s ease both; }
+.fade-in { animation: fadeIn 0.3s ease both; }
+
+/* ── Focus ring ─────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
