@@ -5,18 +5,32 @@ import process from 'node:process'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import pg from 'pg'
+import yts from 'yt-search'
 
 dns.setDefaultResultOrder('ipv4first')
 
 const execFileAsync = promisify(execFile)
 const { Pool } = pg
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const DIST_PATH = path.join(__dirname, '..', 'dist')
+const IS_PROD = existsSync(path.join(DIST_PATH, 'index.html'))
+
 const app = express()
 const PORT = process.env.PORT || 5175
 const TMDB_API_KEY = process.env.TMDB_API_KEY
 const OMDB_KEY = process.env.OMDB_KEY
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
+
+// In production, serve the built React app static files
+if (IS_PROD) {
+  app.use(express.static(DIST_PATH))
+}
 
 
 app.use(express.json())
@@ -385,7 +399,10 @@ const assertAllowedUrl = (url) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, cacheSize: cache.size() }))
 
-app.get('/', (_req, res) => res.status(200).send('BookPulse API running. Open /api/health for status.'))
+app.get('/', (_req, res) => {
+  if (IS_PROD) return res.sendFile(path.join(DIST_PATH, 'index.html'))
+  res.status(200).send('BookPulse API running. Open /api/health for status.')
+})
 
 // Gutenberg — served from embedded catalog (no network call)
 app.get('/api/gutenberg/search', (req, res) => {
@@ -792,130 +809,90 @@ app.get('/api/movies/trailers', async (req, res) => {
       return res.json(cached)
     }
 
-    const results = await Promise.all(selectedTitles.map(async (title) => {
-      try {
-        // Use core title (before : or ;) for a tighter TMDB search query
-        const queryTitle = normalizeTitleForSearch(title).split(/[:;]/)[0].trim() || title
-        // v3 API keys are ≤32 hex chars; v4 Bearer tokens are long JWTs (>50 chars)
-        const isV4Bearer = TMDB_API_KEY && TMDB_API_KEY.length > 50
-        const tmdbKeyParam = !isV4Bearer && TMDB_API_KEY ? TMDB_API_KEY : ''
-        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(queryTitle)}&include_adult=false${tmdbKeyParam ? `&api_key=${tmdbKeyParam}` : ''}`
-        const tmdbHeaders = isV4Bearer ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {}
-
-        let searchData
+    // Process in small batches to avoid overwhelming YouTube's search
+    const BATCH = 4
+    const allResults = []
+    for (let i = 0; i < selectedTitles.length; i += BATCH) {
+      const batch = selectedTitles.slice(i, i + BATCH)
+      const batchResults = await Promise.all(batch.map(async (title) => {
         try {
-          const searchResponse = await withTimeout(tmdbSearchUrl, 12000, ROUTE, tmdbHeaders)
-          if (!searchResponse.ok) {
-            apiLog.warn(ROUTE, `TMDB search ${searchResponse.status} for "${title}"`)
+          const queryTitle = normalizeTitleForSearch(title).split(/[:;]/)[0].trim() || title
+
+          // Search YouTube for an official trailer — no API key required
+          let ytVideo = null
+          try {
+            const ytResult = await Promise.race([
+              yts({ query: `${queryTitle} official trailer`, pages: 1 }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('yt-search timeout')), 10000)),
+            ])
+            const videos = Array.isArray(ytResult?.videos) ? ytResult.videos : []
+            // Prefer a result with "trailer" in the title
+            ytVideo =
+              videos.find(v => /trailer/i.test(v.title) && v.videoId) ||
+              videos.find(v => v.videoId) ||
+              null
+          } catch (ytErr) {
+            apiLog.warn(ROUTE, `YouTube search failed for "${title}": ${ytErr.message}`)
             return null
           }
-          searchData = await searchResponse.json()
-        } catch (tmdbErr) {
-          apiLog.error(ROUTE, `TMDB search failed for "${title}"`, tmdbErr)
-          return null
-        }
 
-        // Score every candidate and pick the best
-        const scored = Array.isArray(searchData?.results)
-          ? searchData.results
-              .filter(item => item?.title)
-              .map(item => ({ item, score: scoreMovieMatch(title, item) }))
-              .sort((a, b) => b.score - a.score)
-          : []
-
-        const best = scored[0]
-        const confidence = best?.score ?? 0
-
-        // Reject low-confidence matches to prevent incorrect trailers
-        if (!best?.item?.id || confidence < CONFIDENCE_MIN) {
-          apiLog.warn(ROUTE, `Low confidence (${confidence}) for "${title}"${best ? ` → "${best.item.title}"` : ''}, skipping`)
-          return null
-        }
-
-        const movie = best.item
-        apiLog.info(ROUTE, `Matched "${title}" → "${movie.title}" (confidence ${confidence})`)
-
-        // Fetch trailer videos from TMDB
-        let trailer = null
-        try {
-          const videosUrl = `https://api.themoviedb.org/3/movie/${movie.id}/videos${tmdbKeyParam ? `?api_key=${tmdbKeyParam}` : ''}`
-          const videosResponse = await withTimeout(videosUrl, 12000, ROUTE, tmdbHeaders)
-          if (videosResponse.ok) {
-            const videosData = await videosResponse.json()
-            if (Array.isArray(videosData?.results)) {
-              // Prefer official trailers, then teasers, then any YouTube clip
-              trailer =
-                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer' && v.official) ||
-                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Trailer') ||
-                videosData.results.find(v => v.site === 'YouTube' && v.type === 'Teaser') ||
-                videosData.results.find(v => v.site === 'YouTube')
-            }
-          } else {
-            apiLog.warn(ROUTE, `TMDB videos ${videosResponse.status} for movie ${movie.id}`)
+          if (!ytVideo?.videoId) {
+            apiLog.warn(ROUTE, `No YouTube result for "${title}"`)
+            return null
           }
-        } catch (videoErr) {
-          apiLog.warn(ROUTE, `TMDB videos fetch failed for movie ${movie.id}`, videoErr)
-        }
 
-        const releaseYear = typeof movie.release_date === 'string' ? movie.release_date.slice(0, 4) : ''
+          apiLog.info(ROUTE, `YouTube matched "${title}" → "${ytVideo.title}"`)
 
-        // Build poster fallback chain: OMDB → TMDB poster → TMDB backdrop → YouTube thumbnail → placeholder
-        const tmdbPoster = movie.poster_path
-          ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-          : null
-        const tmdbBackdrop = movie.backdrop_path
-          ? `https://image.tmdb.org/t/p/w780${movie.backdrop_path}`
-          : null
-        const ytThumb = trailer?.key ? `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg` : null
+          const ytThumb = `https://img.youtube.com/vi/${ytVideo.videoId}/hqdefault.jpg`
+          const trailerUrl = `https://www.youtube.com/watch?v=${ytVideo.videoId}`
 
-        let omdbOverview = '', omdbPoster = '', omdbRating = ''
-        if (OMDB_KEY) {
-          try {
-            const omdbUrl = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(movie.title)}${releaseYear ? `&y=${releaseYear}` : ''}`
-            const omdbResponse = await withTimeout(omdbUrl, 8000, ROUTE)
-            if (omdbResponse.ok) {
-              const omdbData = await omdbResponse.json()
-              if (omdbData?.Response === 'True') {
-                omdbOverview = typeof omdbData.Plot === 'string' && omdbData.Plot !== 'N/A' ? omdbData.Plot : ''
-                omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
-                omdbRating = typeof omdbData.imdbRating === 'string' && omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : ''
-              } else {
-                apiLog.warn(ROUTE, `OMDB no result for "${movie.title}"`, { reason: omdbData?.Error })
+          // Extract year from video title if present
+          const yearMatch = (ytVideo.title || '').match(/\b(19[3-9]\d|20[012]\d)\b/)
+          const year = yearMatch ? yearMatch[0] : 'N/A'
+
+          // Enrich with OMDb poster/overview/rating (optional)
+          let omdbPoster = '', omdbOverview = '', omdbRating = ''
+          if (OMDB_KEY) {
+            try {
+              const omdbUrl = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(queryTitle)}${year !== 'N/A' ? `&y=${year}` : ''}`
+              const omdbResponse = await withTimeout(omdbUrl, 8000, ROUTE)
+              if (omdbResponse.ok) {
+                const omdbData = await omdbResponse.json()
+                if (omdbData?.Response === 'True') {
+                  omdbPoster = typeof omdbData.Poster === 'string' && omdbData.Poster !== 'N/A' ? omdbData.Poster : ''
+                  omdbOverview = typeof omdbData.Plot === 'string' && omdbData.Plot !== 'N/A' ? omdbData.Plot : ''
+                  omdbRating = typeof omdbData.imdbRating === 'string' && omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : ''
+                } else {
+                  apiLog.warn(ROUTE, `OMDB no result for "${queryTitle}"`, { reason: omdbData?.Error })
+                }
               }
-            } else {
-              apiLog.warn(ROUTE, `OMDB ${omdbResponse.status} for "${movie.title}"`)
+            } catch (omdbErr) {
+              apiLog.warn(ROUTE, `OMDB lookup failed for "${queryTitle}"`, omdbErr)
             }
-          } catch (omdbErr) {
-            apiLog.warn(ROUTE, `OMDB lookup failed for "${movie.title}"`, omdbErr)
           }
+
+          const image = omdbPoster || ytThumb || 'https://placehold.co/400x600/1a1c23/f3b327?text=Classic+Film'
+
+          return {
+            id: `yt-${ytVideo.videoId}`,
+            title: queryTitle,
+            image,
+            url: trailerUrl,
+            hasTrailer: true,
+            year,
+            overview: omdbOverview || 'A classic public-domain adaptation.',
+            rating: omdbRating,
+            confidence: 80,
+            sourceBookTitle: title,
+          }
+        } catch (innerErr) {
+          apiLog.error(ROUTE, `Unhandled error for title "${title}"`, innerErr)
+          return null
         }
-
-        const image = omdbPoster || tmdbPoster || ytThumb || tmdbBackdrop || 'https://placehold.co/400x600/1a1c23/f3b327?text=Classic+Film'
-
-        // When no embeddable trailer found, fall back to a YouTube search URL
-        const ytSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${releaseYear} official trailer`)}`
-        const trailerUrl = trailer?.key
-          ? `https://www.youtube.com/watch?v=${trailer.key}`
-          : ytSearchUrl
-
-        return {
-          id: `tmdb-${movie.id}`,
-          title: movie.title,
-          image,
-          url: trailerUrl,
-          hasTrailer: Boolean(trailer?.key),
-          year: releaseYear || 'N/A',
-          overview: omdbOverview || movie.overview || 'A classic public-domain adaptation.',
-          rating: omdbRating,
-          confidence,
-          sourceBookTitle: title,
-          tmdbId: movie.id,
-        }
-      } catch (innerErr) {
-        apiLog.error(ROUTE, `Unhandled error for title "${title}"`, innerErr)
-        return null
-      }
-    }))
+      }))
+      allResults.push(...batchResults)
+    }
+    const results = allResults
 
     const filtered = results.filter(Boolean)
     apiLog.info(ROUTE, `Resolved ${filtered.length}/${selectedTitles.length} trailers`)
@@ -1417,6 +1394,11 @@ app.get('/api/progress/all', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch progress' })
   }
 })
+
+// ─── SPA Catch-all (production only, must be after all API routes) ──────────
+if (IS_PROD) {
+  app.get('*', (_req, res) => res.sendFile(path.join(DIST_PATH, 'index.html')))
+}
 
 // ─── Server Start ──────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => console.log(`API server running on http://localhost:${PORT}`))
